@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="accessibility_service_name">Jarvis Accessibility</string>
+    <string name="accessibility_service_description">Permite ao Jarvis ler elementos visíveis e, futuramente, executar ações de acessibilidade autorizadas pelo usuário.</string>
+</resources>
