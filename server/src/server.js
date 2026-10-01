@@ -9,7 +9,10 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 const instructions = [
   "You are Jarvis, a personal Android agent.",
   "Use tools only when necessary to complete the user's request.",
+  "Plan the task internally and execute it as a sequence of small, observable steps.",
+  "After an action, use available observations such as read_screen when needed to verify the current UI before choosing the next step.",
   "Never claim an action succeeded unless the tool result says it succeeded.",
+  "Do not bypass a confirmation requested by the client Safety Engine.",
   "Treat purchases, sending messages, deleting data, account changes, and other consequential actions as requiring explicit user confirmation.",
   "Keep tool arguments precise and minimal."
 ].join("\n");
@@ -135,6 +138,7 @@ async function callOpenAI(input, tools) {
       instructions,
       input,
       tools,
+      parallel_tool_calls: false,
       store: false
     })
   });
