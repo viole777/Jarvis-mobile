@@ -10,17 +10,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.viole.jarvis.accessibility.JarvisAccessibilityService
 import com.viole.jarvis.agent.AgentLoop
+import com.viole.jarvis.agent.AgentRunResult
 import com.viole.jarvis.agent.HttpModelClient
 import com.viole.jarvis.tools.AndroidToolRegistry
 import com.viole.jarvis.tools.AndroidTools
@@ -68,11 +71,12 @@ class MainActivity : ComponentActivity() {
                 },
                 onRunAgent = { input, onResult ->
                     lifecycleScope.launch {
-                        try {
-                            onResult(agent.run(input))
-                        } catch (error: Exception) {
-                            onResult("Erro: " + (error.message ?: "falha de comunicação"))
-                        }
+                        onResult(agent.run(input))
+                    }
+                },
+                onConfirm = { approved, onResult ->
+                    lifecycleScope.launch {
+                        onResult(agent.confirmPending(approved))
                     }
                 }
             )
@@ -86,7 +90,8 @@ private fun JarvisScreen(
     initialToken: String,
     onOpenAccessibility: () -> Unit,
     onSaveBackend: (String, String) -> Unit,
-    onRunAgent: (String, (String) -> Unit) -> Unit
+    onRunAgent: (String, (AgentRunResult) -> Unit) -> Unit,
+    onConfirm: (Boolean, (AgentRunResult) -> Unit) -> Unit
 ) {
     var command by remember { mutableStateOf("") }
     var backendUrl by remember { mutableStateOf(initialUrl) }
@@ -94,6 +99,27 @@ private fun JarvisScreen(
     var response by remember { mutableStateOf("Aguardando comando.") }
     var screenText by remember { mutableStateOf("Nenhuma leitura realizada.") }
     var status by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf<AgentRunResult.NeedsConfirmation?>(null) }
+
+    fun handleResult(result: AgentRunResult) {
+        when (result) {
+            is AgentRunResult.Completed -> {
+                response = result.text
+                status = "Tarefa concluída."
+                confirmation = null
+            }
+            is AgentRunResult.Failed -> {
+                response = result.message
+                status = "Tarefa interrompida."
+                confirmation = null
+            }
+            is AgentRunResult.NeedsConfirmation -> {
+                response = "Aguardando sua confirmação."
+                status = "Safety Engine pausou a execução."
+                confirmation = result
+            }
+        }
+    }
 
     MaterialTheme {
         Surface(Modifier.fillMaxSize()) {
@@ -102,7 +128,7 @@ private fun JarvisScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text("JARVIS", style = MaterialTheme.typography.headlineMedium)
-                Text("Agent + Android Tools — Fase 3")
+                Text("Agent + Orchestration + Safety Engine")
 
                 Button(onClick = onOpenAccessibility) {
                     Text("Abrir acessibilidade")
@@ -145,8 +171,9 @@ private fun JarvisScreen(
                         backendToken.isNotBlank() &&
                         JarvisAccessibilityService.instance != null,
                     onClick = {
-                        response = "Executando..."
-                        onRunAgent(command) { response = it }
+                        response = "Planejando e executando..."
+                        status = "Agent Loop ativo."
+                        onRunAgent(command) { handleResult(it) }
                     }
                 ) {
                     Text("Executar com Jarvis")
@@ -169,5 +196,41 @@ private fun JarvisScreen(
                 Text(screenText)
             }
         }
+    }
+
+    confirmation?.let { pending ->
+        AlertDialog(
+            onDismissRequest = {
+                onConfirm(false) { handleResult(it) }
+            },
+            title = { Text("Confirmação necessária") },
+            text = {
+                Text(
+                    pending.reason +
+                        "\n\nFerramenta: " + pending.toolName +
+                        "\nArgumentos: " + pending.arguments
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmation = null
+                        onConfirm(true) { handleResult(it) }
+                    }
+                ) {
+                    Text("Permitir")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        confirmation = null
+                        onConfirm(false) { handleResult(it) }
+                    }
+                ) {
+                    Text("Recusar")
+                }
+            }
+        )
     }
 }
