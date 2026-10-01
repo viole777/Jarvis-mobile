@@ -1,29 +1,48 @@
 # Jarvis Mobile
 
-Assistente pessoal experimental para Android, inspirado na arquitetura de agentes como Claude Code.
+Assistente pessoal experimental para Android.
 
-## Fase 1
+## Fase 4 — Orquestração
 
-O projeto começa pelo "corpo" do agente:
+O agente agora suporta múltiplas etapas por tarefa, limite de rodadas, retry controlado de ferramentas e pausa/retomada de ações que precisam de confirmação.
 
-- Android nativo com Kotlin;
-- Accessibility Service;
-- leitura da árvore de acessibilidade;
-- camada inicial de ferramentas;
-- tela de diagnóstico para ativar e testar o serviço.
+Exemplo conceitual:
 
-## Arquitetura planejada
+Usuário -> AgentLoop -> modelo -> ferramenta -> resultado -> modelo -> próxima ferramenta
 
-Android App -> Tool Layer -> Agent -> LLM
+O modelo pode combinar open_app, read_screen, click, type_text, scroll e back para completar uma tarefa.
 
-As ações sensíveis devem exigir confirmação explícita do usuário.
+## Fase 5 — Safety Engine
 
-## Como abrir
+Antes de uma ferramenta ser executada, o cliente aplica uma política local.
 
-1. Clone o repositório.
-2. Abra no Android Studio.
-3. Aguarde o Gradle Sync.
-4. Execute em um dispositivo Android.
-5. Abra "Acessibilidade" pelo botão do app e ative o Jarvis manualmente.
+- leitura e navegação simples podem ser automáticas;
+- inserção de texto exige confirmação explícita;
+- cliques com sinais de compra, pagamento, envio ou exclusão exigem confirmação;
+- uma ação recusada é devolvida ao modelo como recusada, em vez de ser executada;
+- a interface mostra a ferramenta e os argumentos antes da confirmação.
 
-> O Accessibility Service é uma capacidade poderosa e deve ser usado somente com autorização explícita do usuário.
+A Safety Engine fica no Android, perto da execução real da ação. O backend não pode substituir essa confirmação.
+
+## Arquitetura
+
+Android UI
+  -> AgentLoop
+  -> ModelClient
+  -> Backend
+  -> Responses API
+  -> Tool call
+  -> SafetyEngine
+  -> AccessibilityService
+  -> Tool result
+  -> AgentLoop
+
+A chave do provedor de IA permanece exclusivamente no backend.
+
+## Segurança
+
+O Jarvis não deve realizar compras, pagamentos, envio de mensagens, exclusões ou outras ações consequenciais sem confirmação explícita do usuário.
+
+O projeto usa Accessibility Service. A ativação é manual nas configurações do Android.
+
+Para uso fora da rede local, use HTTPS e autenticação adequada.
