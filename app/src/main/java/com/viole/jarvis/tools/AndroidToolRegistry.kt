@@ -6,6 +6,7 @@ class AndroidToolRegistry(private val context: Context) {
     private val tools = listOf(
         OpenAppTool(context),
         ReadScreenTool(),
+        InspectScreenTool(),
         ClickTool(),
         TypeTextTool(),
         ScrollTool(),
