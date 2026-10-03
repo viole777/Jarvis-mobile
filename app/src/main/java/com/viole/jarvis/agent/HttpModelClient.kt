@@ -4,6 +4,8 @@ import com.viole.jarvis.tools.ToolSchema
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.net.URL
 
 class HttpModelClient(
@@ -14,7 +16,7 @@ class HttpModelClient(
     override suspend fun generate(
         messages: List<AgentMessage>,
         tools: List<ToolSchema>
-    ): ModelResponse {
+    ): ModelResponse = withContext(Dispatchers.IO) {
         val payload = JSONObject()
             .put("messages", JSONArray().apply { messages.forEach { put(it.toJson()) } })
             .put("tools", JSONArray().apply { tools.forEach { put(it.toJson()) } })
@@ -53,7 +55,7 @@ class HttpModelClient(
             )
         }
 
-        return ModelResponse(
+        ModelResponse(
             text = response.optString("text"),
             toolCalls = calls,
             isFinal = response.optBoolean("isFinal", calls.isEmpty())

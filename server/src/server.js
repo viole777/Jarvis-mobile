@@ -1,6 +1,6 @@
 import http from "node:http";
 
-const PORT = Number(process.env.PORT || 8080);
+const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const AUTH_TOKEN = process.env.JARVIS_AUTH_TOKEN || "";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
