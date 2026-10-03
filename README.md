@@ -46,3 +46,17 @@ O Jarvis não deve realizar compras, pagamentos, envio de mensagens, exclusões 
 O projeto usa Accessibility Service. A ativação é manual nas configurações do Android.
 
 Para uso fora da rede local, use HTTPS e autenticação adequada.
+
+## Fase 6 — Percepção + SLM
+
+A ferramenta `inspect_screen` fornece uma representação estruturada da interface ativa, incluindo texto, content descriptions, resource IDs, classe, estado de interação e limites aproximados dos elementos.
+
+A pasta `ml/` contém a primeira fundação da SLM especializada do Jarvis:
+
+- dataset mínimo de tool calling;
+- gerador de exemplos sintéticos usando um modelo professor;
+- script de SFT com LoRA;
+- avaliação inicial;
+- contrato de saída JSON.
+
+Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para intenção, seleção de ferramentas e argumentos; a Safety Engine do Android continua sendo a autoridade final para execução.
