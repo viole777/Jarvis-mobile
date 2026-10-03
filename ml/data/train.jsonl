@@ -1,0 +1,8 @@
+{"messages":[{"role":"user","content":"Abra o Chrome"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"open_app\",\"arguments\":{\"packageName\":\"com.android.chrome\"}}"}]}
+{"messages":[{"role":"user","content":"Volte para a tela anterior"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"back\",\"arguments\":{}}"}]}
+{"messages":[{"role":"user","content":"Desça a página"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"scroll\",\"arguments\":{\"direction\":\"down\"}}"}]}
+{"messages":[{"role":"user","content":"Suba a página"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"scroll\",\"arguments\":{\"direction\":\"up\"}}"}]}
+{"messages":[{"role":"user","content":"Leia o que está na tela"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"inspect_screen\",\"arguments\":{}}"}]}
+{"messages":[{"role":"user","content":"Veja os elementos disponíveis"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"inspect_screen\",\"arguments\":{}}"}]}
+{"messages":[{"role":"user","content":"Mostre o conteúdo acessível da tela"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"read_screen\",\"arguments\":{}}"}]}
+{"messages":[{"role":"user","content":"Não faça nada, só me diga olá"},{"role":"assistant","content":"{\"action\":\"final\",\"text\":\"Olá.\"}"}]}

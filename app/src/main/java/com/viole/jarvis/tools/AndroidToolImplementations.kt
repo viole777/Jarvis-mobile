@@ -66,7 +66,7 @@ class TypeTextTool : Tool {
     override fun confirmationReason(arguments: Map<String, Any?>): String {
         val text = arguments["text"] as? String ?: ""
         val preview = if (text.length > 80) text.take(80) + "…" else text
-        return "O Jarvis quer inserir este texto em um aplicativo: "" + preview + ""."
+        return "O Jarvis quer inserir este texto em um aplicativo: \"$preview\"."
     }
 
     override suspend fun execute(arguments: Map<String, Any?>): ToolExecutionResult {

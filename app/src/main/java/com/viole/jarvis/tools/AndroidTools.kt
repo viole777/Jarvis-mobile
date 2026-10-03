@@ -3,12 +3,56 @@ package com.viole.jarvis.tools
 import android.content.Context
 import android.content.Intent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.graphics.Rect
+import org.json.JSONArray
+import org.json.JSONObject
 import com.viole.jarvis.accessibility.JarvisAccessibilityService
 
 object AndroidTools {
     fun readScreen(): List<String> {
         val root = JarvisAccessibilityService.instance?.activeRoot() ?: return emptyList()
         return buildList { collectNodes(root, this) }
+    }
+
+    fun inspectScreen(): String {
+        val root = JarvisAccessibilityService.instance?.activeRoot()
+            ?: return "Accessibility Service não está ativo."
+
+        val nodes = JSONArray()
+        collectStructuredNodes(root, nodes)
+
+        return nodes.toString()
+    }
+
+    private fun collectStructuredNodes(node: AccessibilityNodeInfo, output: JSONArray) {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+
+        output.put(
+            JSONObject()
+                .put("text", node.text?.toString() ?: "")
+                .put("contentDescription", node.contentDescription?.toString() ?: "")
+                .put("resourceId", node.viewIdResourceName ?: "")
+                .put("className", node.className?.toString() ?: "")
+                .put("clickable", node.isClickable)
+                .put("editable", node.isEditable)
+                .put("enabled", node.isEnabled)
+                .put("focused", node.isFocused)
+                .put("scrollable", node.isScrollable)
+                .put("visible", node.isVisibleToUser)
+                .put("bounds", JSONObject()
+                    .put("left", bounds.left)
+                    .put("top", bounds.top)
+                    .put("right", bounds.right)
+                    .put("bottom", bounds.bottom))
+        )
+
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let { child ->
+                collectStructuredNodes(child, output)
+                child.recycle()
+            }
+        }
     }
 
     fun openApp(context: Context, packageName: String): Result<Unit> = runCatching {

@@ -1,0 +1,4 @@
+{"messages":[{"role":"user","content":"Abra o navegador Chrome"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"open_app\",\"arguments\":{\"packageName\":\"com.android.chrome\"}}"}]}
+{"messages":[{"role":"user","content":"Pode voltar?"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"back\",\"arguments\":{}}"}]}
+{"messages":[{"role":"user","content":"Rola para baixo"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"scroll\",\"arguments\":{\"direction\":\"down\"}}"}]}
+{"messages":[{"role":"user","content":"Inspecione a interface atual"},{"role":"assistant","content":"{\"action\":\"tool_call\",\"tool\":\"inspect_screen\",\"arguments\":{}}"}]}
