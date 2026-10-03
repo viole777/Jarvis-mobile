@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 private const val PREFS = "jarvis_settings"
 private const val URL_KEY = "backend_url"
 private const val TOKEN_KEY = "backend_token"
-private const val DEFAULT_URL = "http://10.0.2.2:8080"
+private const val DEFAULT_URL = "http://10.0.2.2:3000"
 
 class MainActivity : ComponentActivity() {
     private lateinit var agent: AgentLoop
