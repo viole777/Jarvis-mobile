@@ -2,6 +2,10 @@ package com.viole.jarvis
 
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -27,15 +31,18 @@ import com.viole.jarvis.agent.AgentRunResult
 import com.viole.jarvis.agent.HttpModelClient
 import com.viole.jarvis.tools.AndroidToolRegistry
 import com.viole.jarvis.tools.AndroidTools
+import com.viole.jarvis.voice.VoiceTriggerService
 import kotlinx.coroutines.launch
 
 private const val PREFS = "jarvis_settings"
 private const val URL_KEY = "backend_url"
 private const val TOKEN_KEY = "backend_token"
 private const val DEFAULT_URL = "http://10.0.2.2:3000"
+private const val AUDIO_PERMISSION_REQUEST = 9001
 
 class MainActivity : ComponentActivity() {
     private lateinit var agent: AgentLoop
+    private var voiceReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +59,18 @@ class MainActivity : ComponentActivity() {
         }
 
         configureAgent()
+
+        voiceReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val command = intent?.getStringExtra(VoiceTriggerService.EXTRA_COMMAND).orEmpty()
+                if (command.isBlank()) return
+                lifecycleScope.launch {
+                    agent.run(command)
+                }
+            }
+        }
+        registerVoiceReceiver()
+        ensureVoiceTriggerPermission()
 
         setContent {
             JarvisScreen(
@@ -82,6 +101,60 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
+
+    private fun registerVoiceReceiver() {
+        val receiver = voiceReceiver ?: return
+        val filter = IntentFilter(VoiceTriggerService.ACTION_VOICE_COMMAND)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(receiver, filter)
+        }
+    }
+
+    private fun ensureVoiceTriggerPermission() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.RECORD_AUDIO),
+                AUDIO_PERMISSION_REQUEST
+            )
+        } else {
+            startVoiceTriggerService()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == AUDIO_PERMISSION_REQUEST &&
+            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        ) {
+            startVoiceTriggerService()
+        }
+    }
+
+    private fun startVoiceTriggerService() {
+        val intent = Intent(this, VoiceTriggerService::class.java).apply {
+            action = VoiceTriggerService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    override fun onDestroy() {
+        voiceReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: IllegalArgumentException) {}
+        }
+        voiceReceiver = null
+        super.onDestroy()
+    }
+
 }
 
 @Composable
