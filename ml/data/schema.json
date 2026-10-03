@@ -1,0 +1,5 @@
+{
+  "description":"Jarvis SLM supervised example schema",
+  "record":{"messages":[{"role":"user","content":"natural language command"},{"role":"assistant","content":"strict JSON action"}]},
+  "actions":{"tool_call":{"required":["tool","arguments"]},"final":{"required":["text"]}}
+}
