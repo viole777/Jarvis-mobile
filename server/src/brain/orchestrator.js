@@ -8,7 +8,7 @@ const MAX_STEPS = 12;
 const MAX_TOOL_CALLS = 16;
 
 export class Orchestrator {
-  constructor({ model, memory }) { this.model = model; this.memory = memory; }
+  constructor({ model, memory, cognitive, cognitiveStateStore }) {\n    this.model = model;\n    this.memory = memory;\n    this.cognitive = cognitive;\n    this.cognitiveStateStore = cognitiveStateStore;\n  }
 
   async run({ messages, tools = [] }) {
     const userInput = messages.at(-1)?.content || "";
