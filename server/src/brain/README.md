@@ -11,6 +11,9 @@ Current layers:
 - **Working Memory** stores per-run context.
 - **LearningEngine** records bounded lessons; it does not rewrite production code or model weights.
 - **TeacherRegistry** provides a controlled interface for teacher models.
+- **Cognitive Core** maintains bounded internal state, competing hypotheses, uncertainty, concern, curiosity, attention and next-action recommendations. The model evaluates evidence; code supplies persistence and safety boundaries.
+- **CognitiveStateStore** preserves cognitive continuity per subject while the process is running.
+
 
 ### Teacher principle
 
