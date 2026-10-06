@@ -1,0 +1,20 @@
+name: Jarvis Cognitive Lab
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cognitive-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run self-model tests
+        working-directory: cognitive-lab
+        run: python -m unittest discover -v
+      - name: Run first-awareness functional experiment
+        working-directory: cognitive-lab
+        run: python run.py
