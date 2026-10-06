@@ -1,6 +1,6 @@
 import http from "node:http";
 import { Orchestrator } from "./brain/orchestrator.js";
-import { MemoryManager } from "./brain/memory.js";
+import { MemoryManager } from "./brain/memory.js";\nimport { CognitiveEngine, CognitiveStateStore } from "./brain/cognitive/index.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -153,7 +153,7 @@ async function callOpenAI(input, tools) {
   return parseModelResponse(payload);
 }
 
-const memory = new MemoryManager();
+const memory = new MemoryManager();\nconst cognitiveStateStore = new CognitiveStateStore();
 
 async function handleAgent(req, res) {
   if (!authorized(req)) return json(res, 401, { error: "Unauthorized" });
