@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jarvis Cognitive Lab</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main class="shell">
+<header><div><span class="eyebrow">JARVIS / COGNITIVE LAB</span><h1>First Awareness Experiment</h1><p>Laboratório para observar percepção, hipóteses, incerteza e atualização do estado cognitivo.</p></div><button id="reset" class="ghost">Reset</button></header>
+<section class="grid">
+<article class="panel input"><label for="event">Novo evento observado</label><textarea id="event" placeholder="Ex.: O usuário não apareceu no horário habitual."></textarea><div class="row"><button id="observe" class="primary">Observar evento</button><button id="experiment" class="secondary">Executar experimento</button></div></article>
+<article class="panel"><div class="panel-title">Estado cognitivo <span id="status">READY</span></div><div class="metrics"><div><small>Concern</small><strong id="concern">0%</strong></div><div><small>Uncertainty</small><strong id="uncertainty">0%</strong></div><div><small>Curiosity</small><strong id="curiosity">0%</strong></div><div><small>Confidence</small><strong id="confidence">100%</strong></div></div></article>
+<article class="panel"><div class="panel-title">Self-Model</div><pre id="self"></pre></article>
+<article class="panel"><div class="panel-title">Hipóteses</div><div id="hypotheses" class="list"></div></article>
+<article class="panel wide"><div class="panel-title">Eventos e decisões</div><div id="timeline" class="timeline"></div></article>
+</section>
+<footer>O laboratório mede propriedades funcionais. Nenhum resultado é tratado como prova de consciência subjetiva.</footer>
+</main>
+<script src="./app.js"></script>
+</body>
+</html>
