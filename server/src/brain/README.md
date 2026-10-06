@@ -1,9 +1,34 @@
 # Jarvis Cloud Brain
 
-This directory is the first cloud-side cognitive runtime for Jarvis.
+The cloud runtime is separated from the model.
 
-V1 creates explicit AgentRun state, working memory and bounded orchestration while preserving Android as the execution boundary.
+Current layers:
+- **Orchestrator** owns the bounded AgentRun lifecycle.
+- **Interpreter** extracts objective, intent, constraints and risk hints.
+- **Planner** creates an explicit adaptive step plan.
+- **Critic** performs a lightweight result-quality check.
+- **Validator** checks that a run has a usable result before completion.
+- **Working Memory** stores per-run context.
+- **LearningEngine** records bounded lessons; it does not rewrite production code or model weights.
+- **TeacherRegistry** provides a controlled interface for teacher models.
 
-Next layers: interpreter, adaptive planner, observer, validator, model router, persistent memory, critic/reflection, teacher pipeline, background jobs and resumable runs.
+### Teacher principle
 
-The SLM is a model component, not the runtime itself. The runtime must remain usable with a teacher model, the future Jarvis SLM, or another provider.
+Teacher models are instructors, not permanent decision-makers. Their outputs can become training/evaluation data for the Jarvis SLM. A future promotion pipeline must evaluate a candidate model before replacing the current one.
+
+### Self-improvement principle
+
+Self-improvement means a bounded loop:
+
+experience -> evaluation -> lesson/dataset -> candidate training -> evaluation -> optional promotion.
+
+It must never mean unrestricted self-modification, credential access, permission changes, or infinite execution.
+
+### Next layer
+
+1. persistent memory adapter;
+2. model router and provider abstraction;
+3. tool router + server-side policy;
+4. background jobs and resumable runs;
+5. teacher -> dataset -> evaluation -> candidate SLM pipeline;
+6. proactive monitoring with explicit privacy/consent boundaries.
