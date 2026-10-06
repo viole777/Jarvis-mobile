@@ -1,4 +1,6 @@
 import http from "node:http";
+import { Orchestrator } from "./brain/orchestrator.js";
+import { MemoryManager } from "./brain/memory.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -151,6 +153,8 @@ async function callOpenAI(input, tools) {
   return parseModelResponse(payload);
 }
 
+const memory = new MemoryManager();
+
 async function handleAgent(req, res) {
   if (!authorized(req)) return json(res, 401, { error: "Unauthorized" });
 
@@ -159,12 +163,17 @@ async function handleAgent(req, res) {
     return json(res, 400, { error: "messages must be an array" });
   }
 
-  const result = await callOpenAI(
-    toResponsesInput(body.messages),
-    Array.isArray(body.tools) ? body.tools.map(toolDefinition) : []
-  );
-
-  return json(res, 200, result);
+  const orchestrator = new Orchestrator({
+    model: { call: (messages, tools) => callOpenAI(toResponsesInput(messages), tools.map(toolDefinition)) },
+    memory
+  });
+  const result = await orchestrator.run({ messages: body.messages, tools: body.tools || [] });
+  return json(res, 200, {
+    text: result.text,
+    toolCalls: result.toolCalls,
+    isFinal: result.isFinal,
+    run: result.run
+  });
 }
 
 const server = http.createServer(async (req, res) => {
