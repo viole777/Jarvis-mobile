@@ -1,8 +1,11 @@
 {
   "name": "jarvis-server",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "engines": { "node": ">=20" },
-  "scripts": { "start": "node --env-file=.env src/server.js", "dev": "node --env-file=.env --watch src/server.js" }
+  "scripts": { "start": "node --env-file=.env src/server.js", "dev": "node --env-file=.env --watch src/server.js" },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
 }
