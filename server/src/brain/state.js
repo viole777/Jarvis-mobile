@@ -7,9 +7,10 @@ export const RUN_STATES = Object.freeze({
 export function createAgentRun(userInput) {
   const now = new Date().toISOString();
   return { id: crypto.randomUUID(), traceId: crypto.randomUUID(), userInput,
-    objective: null, complexity: 0, status: RUN_STATES.CREATED, plan: [],\n    cognitiveState: null,
-    currentStep: null, context: {}, toolCalls: [], observations: [], errors: [],
-    result: null, createdAt: now, startedAt: null, completedAt: null };
+    objective: null, complexity: 0, status: RUN_STATES.CREATED, plan: [],
+    cognitiveState: null, currentStep: null, context: {}, toolCalls: [],
+    observations: [], errors: [], result: null, createdAt: now,
+    startedAt: null, completedAt: null };
 }
 export function transitionRun(run, status) {
   run.status = status;
