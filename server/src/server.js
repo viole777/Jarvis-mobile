@@ -7,8 +7,6 @@ import { deriveSelfModel } from "./brain/cognitive/self-model.js";
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const AUTH_TOKEN = process.env.JARVIS_AUTH_TOKEN || "";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 
 const instructions = [
   "You are Jarvis, a personal multi-device agent.",
@@ -65,7 +63,7 @@ const memory=new MemoryManager();
 const cognitiveStateStore=new CognitiveStateStore();
 const selfModelStore=new SelfModelStore();
 const model={call:(messages,tools)=>callOpenAI(toResponsesInput(messages),tools.map(toolDefinition))};
-const cognitive=new CognitiveEngine({model});
+const cognitive=new CognitiveEngine();
 
 async function handleCognitiveObserve(req,res){
   if(!authorized(req)) return json(res,401,{error:"Unauthorized"});
@@ -105,7 +103,7 @@ const server=http.createServer(async(req,res)=>{
   try {
     if(req.method==="OPTIONS") return json(res,204,{});
     const url=new URL(req.url,"http://localhost");
-    if(req.method==="GET"&&url.pathname==="/health") return json(res,200,{ok:true,service:"jarvis-server",model:OPENAI_MODEL,cognitiveLab:true});
+    if(req.method==="GET"&&url.pathname==="/health") return json(res,200,{ok:true,service:"jarvis-server",engine:"independent-bootstrap",cognitiveLab:true});
     if(req.method==="GET"&&url.pathname==="/v1/cognitive/state") return handleCognitiveState(req,res,url);
     if(req.method==="POST"&&url.pathname==="/v1/cognitive/observe") return await handleCognitiveObserve(req,res);
     if(req.method==="POST"&&url.pathname==="/v1/cognitive/reset") return await handleCognitiveReset(req,res);
