@@ -1,98 +1,63 @@
 import { createCognitiveState, mergeCognitiveState } from "./state.js";
 
-const COGNITIVE_PROMPT = [
-  "You are the cognitive evaluator inside Jarvis.",
-  "Your job is to evaluate the current situation, not to roleplay a human mind.",
-  "Infer beliefs, competing hypotheses, uncertainty, concern, curiosity, confidence, urgency, attention and the next useful action from evidence.",
-  "Do not invent observations. Distinguish observed facts from hypotheses.",
-  "Concern is an internal functional state used to prioritize investigation; it is not proof that danger exists.",
-  "Do not escalate because of a single ambiguous signal. Prefer gathering evidence and proportional actions.",
-  "Do not execute tools from this step. Return only JSON.",
-  "",
-  "Return exactly this JSON shape:",
-  "{",
-  '  "situationSummary": "string",',
-  '  "beliefs": ["observed or well-supported statements"],',
-  '  "hypotheses": [{"statement":"string","confidence":"low|medium|high","evidenceFor":["string"],"evidenceAgainst":["string"]}],',
-  '  "goals": ["current useful goals"],',
-  '  "attention": ["what deserves attention now"],',
-  '  "uncertainty": "low|medium|high",',
-  '  "concern": "low|medium|high",',
-  '  "curiosity": "low|medium|high",',
-  '  "confidence": "low|medium|high",',
-  '  "urgency": "low|medium|high",',
-  '  "recommendedAction": "observe|respond|investigate|plan|act|wait|ask",',
-  '  "reason": "short explanation grounded in evidence"',
-  "}"
-].join("\n");
-
-function extractJson(text) {
-  const raw = String(text || "").trim();
-  try { return JSON.parse(raw); } catch {}
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try { return JSON.parse(match[0]); } catch { return null; }
-}
-
-function normalizeSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== "object") return null;
+function level(value){return value==="high"?.85:value==="medium"?.55:.2;}
+function textFeatures(text){
+  const s=String(text||"").toLowerCase();
   return {
-    situationSummary: String(snapshot.situationSummary || "").slice(0, 2000),
-    beliefs: Array.isArray(snapshot.beliefs) ? snapshot.beliefs.map(String).slice(0, 20) : [],
-    hypotheses: Array.isArray(snapshot.hypotheses)
-      ? snapshot.hypotheses.slice(0, 12).map(item => ({
-          statement: String(item?.statement || "").slice(0, 500),
-          confidence: ["low", "medium", "high"].includes(item?.confidence) ? item.confidence : "low",
-          evidenceFor: Array.isArray(item?.evidenceFor) ? item.evidenceFor.map(String).slice(0, 8) : [],
-          evidenceAgainst: Array.isArray(item?.evidenceAgainst) ? item.evidenceAgainst.map(String).slice(0, 8) : []
-        }))
-      : [],
-    goals: Array.isArray(snapshot.goals) ? snapshot.goals.map(String).slice(0, 12) : [],
-    attention: Array.isArray(snapshot.attention) ? snapshot.attention.map(String).slice(0, 12) : [],
-    uncertainty: snapshot.uncertainty,
-    concern: snapshot.concern,
-    curiosity: snapshot.curiosity,
-    confidence: snapshot.confidence,
-    urgency: snapshot.urgency,
-    recommendedAction: String(snapshot.recommendedAction || "observe"),
-    reason: String(snapshot.reason || "").slice(0, 2000)
+    absence:/\b(sumiu|ausente|não apareceu|nao apareceu|desapareceu|não respondeu|nao respondeu|silêncio|silencio)\b/.test(s),
+    normal:/\b(normal|habitual|rotina|costuma)\b/.test(s),
+    uncertainty:/\b(não sei|nao sei|desconhecido|sem explicação|sem explicacao|incerto|nenhuma explicação|nenhuma explicacao)\b/.test(s),
+    danger:/\b(perigo|urgente|emergência|emergencia|ameaça|ameaca|risco)\b/.test(s),
+    returnEvent:/\bvoltou|retornou|apareceu novamente|respondeu\b/.test(s),
+    user:/\b(luiz|usuário|usuario)\b/.test(s)
   };
 }
+function hypothesis(statement,confidence,evidenceFor,evidenceAgainst=[]){return {statement,confidence,evidenceFor,evidenceAgainst};}
 
 export class CognitiveEngine {
-  constructor({ model }) {
-    this.model = model;
-  }
-
-  async evaluate({ previousState, observations = [], context = {} }) {
-    const state = createCognitiveState(previousState || {});
-    const payload = {
-      previousState: state,
-      observations: observations.slice(-20),
-      context
-    };
-
-    const result = await this.model.call([
-      {
-        type: "user",
-        content: COGNITIVE_PROMPT + "\n\nCURRENT INPUT:\n" + JSON.stringify(payload)
-      }
-    ], []);
-
-    const parsed = normalizeSnapshot(extractJson(result?.text));
-    if (!parsed) {
-      return mergeCognitiveState(state, {
-        situationSummary: "Cognitive evaluation returned an unusable structured result.",
-        uncertainty: "high",
-        confidence: "low",
-        recommendedAction: "observe",
-        reason: "The evaluator could not produce a valid cognitive snapshot."
-      });
+  async evaluate({previousState,observations=[],context={}}){
+    const state=createCognitiveState(previousState||{});
+    const recent=observations.slice(-20);
+    const combined=recent.map(o=>o.content).join(" ");
+    const f=textFeatures(combined);
+    const previousConcern=level(state.concern);
+    const previousUncertainty=level(state.uncertainty);
+    const hasPattern=recent.length>=2;
+    const concern=Math.min(1,Math.max(.05,previousConcern+(f.absence?.25:0)+(f.danger?.35:0)-(f.returnEvent?.35:0)));
+    const uncertainty=Math.min(1,Math.max(.05,previousUncertainty*.45+(f.uncertainty?.35:0)+(hasPattern?.08:0)));
+    const curiosity=Math.min(1,.25+(f.uncertainty?.35:0)+(f.absence?.2:0)+(hasPattern?.15:0));
+    const confidence=Math.max(.1,1-uncertainty);
+    const hypotheses=[];
+    if(f.absence){
+      hypotheses.push(hypothesis("Mudança de rotina ou indisponibilidade temporária",hasPattern?"medium":"low",["houve ausência em relação ao padrão"],["não há evidência suficiente sobre a causa"]));
+      hypotheses.push(hypothesis("Existe uma causa ainda desconhecida",f.uncertainty?"high":"medium",["a explicação não está disponível"],["não há evidência direta de uma causa específica"]));
+    } else {
+      hypotheses.push(hypothesis("A situação observada é compatível com a informação disponível",confidence>0.7?"high":"medium",["a observação não indica uma anomalia forte"]));
     }
-
-    return mergeCognitiveState(state, {
-      ...parsed,
-      lastObservationAt: new Date().toISOString()
+    if(f.returnEvent) hypotheses.push(hypothesis("A ausência anterior foi resolvida", "high",["o usuário voltou ou respondeu"]));
+    let recommendedAction="observe";
+    if(f.danger) recommendedAction="investigate";
+    else if(f.returnEvent) recommendedAction="respond";
+    else if(f.absence&&uncertainty>.45) recommendedAction="investigate";
+    else if(f.absence) recommendedAction="wait";
+    const summary=f.absence
+      ? "Foi detectada uma mudança em relação à presença ou rotina esperada do usuário."
+      : "A situação atual não apresenta uma anomalia forte nas observações recebidas.";
+    return mergeCognitiveState(state,{
+      situationSummary:summary,
+      beliefs:recent.slice(-8).map(o=>String(o.content)),
+      hypotheses,
+      goals:["entender a situação","reduzir incerteza","agir proporcionalmente"],
+      attention:f.absence?["padrão de presença do usuário","novas evidências","explicações alternativas"]:["novas observações"],
+      uncertainty:uncertainty>.7?"high":uncertainty>.35?"medium":"low",
+      concern:concern>.7?"high":concern>.35?"medium":"low",
+      curiosity:curiosity>.7?"high":curiosity>.35?"medium":"low",
+      confidence:confidence>.7?"high":confidence>.35?"medium":"low",
+      urgency:f.danger||concern>.75?"high":concern>.4?"medium":"low",
+      recommendedAction,
+      reason:f.returnEvent?"A nova evidência reduz a preocupação anterior.":f.absence?"A ausência aumentou a prioridade de entender o que aconteceu, mas ainda não justifica concluir que há perigo.":"Não há evidência suficiente para elevar a prioridade.",
+      lastObservationAt:new Date().toISOString(),
+      meta:{engine:"jarvis-independent-bootstrap",context}
     });
   }
 }
