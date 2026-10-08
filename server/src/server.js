@@ -1,7 +1,7 @@
 import http from "node:http";
 import { Orchestrator } from "./brain/orchestrator.js";
 import { MemoryManager } from "./brain/memory.js";
-import { CognitiveEngine, CognitiveStateStore, SelfModelStore } from "./brain/cognitive/index.js";
+import { CognitiveEngine, IndependentCognitiveEngine, CognitiveStateStore, SelfModelStore } from "./brain/cognitive/index.js";
 import { deriveSelfModel } from "./brain/cognitive/self-model.js";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -65,7 +65,7 @@ const memory=new MemoryManager();
 const cognitiveStateStore=new CognitiveStateStore();
 const selfModelStore=new SelfModelStore();
 const model={call:(messages,tools)=>callOpenAI(toResponsesInput(messages),tools.map(toolDefinition))};
-const cognitive=new CognitiveEngine({model});
+const cognitive=new IndependentCognitiveEngine();
 
 async function handleCognitiveObserve(req,res){
   if(!authorized(req)) return json(res,401,{error:"Unauthorized"});
