@@ -2,6 +2,7 @@ import http from "node:http";
 import { Orchestrator } from "./brain/orchestrator.js";
 import { MemoryManager } from "./brain/memory.js";
 import { CognitiveEngine, CognitiveStateStore, SelfModelStore } from "./brain/cognitive/index.js";
+import { deriveSelfModel } from "./brain/cognitive/self-model.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
