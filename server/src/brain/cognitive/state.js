@@ -2,10 +2,10 @@ const LEVELS = ["low", "medium", "high"];
 
 export function createCognitiveState(seed = {}) {
   return {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
     situationSummary: seed.situationSummary || "",
-    beliefs: Array.isArray(seed.beliefs) ? seed.beliefs.slice(0, 20) : [],
+    beliefs: Array.isArray(seed.beliefs) ? seed.beliefs.slice(-20) : [],
     hypotheses: Array.isArray(seed.hypotheses) ? seed.hypotheses.slice(0, 12) : [],
     goals: Array.isArray(seed.goals) ? seed.goals.slice(0, 12) : [],
     attention: Array.isArray(seed.attention) ? seed.attention.slice(0, 12) : [],
@@ -16,6 +16,11 @@ export function createCognitiveState(seed = {}) {
     urgency: LEVELS.includes(seed.urgency) ? seed.urgency : "low",
     recommendedAction: seed.recommendedAction || "observe",
     reason: seed.reason || "",
+    intent: seed.intent || null,
+    unknowns: Array.isArray(seed.unknowns) ? seed.unknowns.slice(0, 10) : [],
+    candidateActions: Array.isArray(seed.candidateActions) ? seed.candidateActions.slice(0, 8) : [],
+    principlesApplied: Array.isArray(seed.principlesApplied) ? seed.principlesApplied.slice(0, 10) : [],
+    reasoningTrace: Array.isArray(seed.reasoningTrace) ? seed.reasoningTrace.slice(0, 12) : [],
     lastObservationAt: seed.lastObservationAt || null
   };
 }
