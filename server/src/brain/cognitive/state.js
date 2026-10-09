@@ -20,6 +20,7 @@ export function createCognitiveState(seed = {}) {
     unknowns: Array.isArray(seed.unknowns) ? seed.unknowns.slice(0, 10) : [],
     candidateActions: Array.isArray(seed.candidateActions) ? seed.candidateActions.slice(0, 8) : [],
     principlesApplied: Array.isArray(seed.principlesApplied) ? seed.principlesApplied.slice(0, 10) : [],
+    metadata: seed.metadata && typeof seed.metadata === "object" ? seed.metadata : {},
     reasoningTrace: Array.isArray(seed.reasoningTrace) ? seed.reasoningTrace.slice(0, 12) : [],
     lastObservationAt: seed.lastObservationAt || null
   };
