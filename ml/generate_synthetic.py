@@ -16,9 +16,10 @@ TOOLS = [
 ]
 
 SYSTEM = """You generate supervised examples for a small Android agent.
-Return one JSON object per line and nothing else.
-Use only the listed tools.
-For consequential actions, prefer examples that make the model request confirmation rather than bypassing safety.
+Return JSON Lines only: one independent JSON object per line, no markdown.
+Use only the listed tools. Never claim an action has already been executed.
+For consequential actions (sending, deleting, purchasing, paying), output a final response
+that requests explicit confirmation instead of inventing or bypassing a tool.
 Each record must have:
 {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"JSON action..."}]}
 Assistant JSON must be either:
@@ -26,43 +27,65 @@ Assistant JSON must be either:
 or {"action":"final","text":"..."}.
 Vary Brazilian Portuguese phrasing naturally without changing the intended action."""
 
+def parse_records(text):
+    records = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("```"):
+            continue
+        try:
+            value = json.loads(line)
+            if isinstance(value, dict):
+                records.append(value)
+        except json.JSONDecodeError:
+            continue
+    return records
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--count", type=int, default=1000)
+    parser = argparse.ArgumentParser(description="Generate candidate SFT examples using a configured teacher model.")
+    parser.add_argument("--count", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=20)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--model", default=os.getenv("TEACHER_MODEL"))
     args = parser.parse_args()
+
+    if args.count < 1 or args.batch_size < 1:
+        raise SystemExit("--count and --batch-size must be positive")
+    if not args.model:
+        raise SystemExit("Configure TEACHER_MODEL or pass --model. No provider/model is assumed.")
+    if not os.getenv("OPENAI_API_KEY"):
+        raise SystemExit("Set OPENAI_API_KEY for the teacher provider. This key is only for data generation, not Jarvis inference.")
 
     client = OpenAI()
     tool_text = json.dumps(TOOLS, ensure_ascii=False, indent=2)
-
-    prompt = f"Generate {args.count} diverse training examples for these Jarvis tools:\n{tool_text}"
-
-    response = client.responses.create(
-        model=os.getenv("TEACHER_MODEL", "gpt-5.6-luna"),
-        instructions=SYSTEM,
-        input=prompt,
-        store=False,
-    )
-
-    output = response.output_text
     records = []
-    for line in output.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            record = json.loads(line)
-            records.append(record)
-        except json.JSONDecodeError:
-            continue
+    batches = (args.count + args.batch_size - 1) // args.batch_size
+    for index in range(batches):
+        wanted = min(args.batch_size, args.count - len(records))
+        prompt = (
+            f"Generate exactly {wanted} distinct examples for these Jarvis tools. "
+            "Return one JSON object per line. Avoid duplicates and include both tool calls and final responses.\n"
+            f"TOOLS:\n{tool_text}"
+        )
+        response = client.responses.create(
+            model=args.model,
+            instructions=SYSTEM,
+            input=prompt,
+            store=False,
+        )
+        batch = parse_records(response.output_text)
+        records.extend(batch[:wanted])
+        print(f"batch={index + 1}/{batches} parsed={len(batch)} accepted_so_far={len(records)}")
 
-    path = Path(args.output)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    print(f"wrote {len(records)} examples to {path}")
+    print(f"wrote={len(records)} requested={args.count} path={output}")
+    if len(records) < args.count:
+        raise SystemExit("Teacher returned fewer parseable records than requested. Validate output and retry for missing examples.")
 
 if __name__ == "__main__":
     main()
