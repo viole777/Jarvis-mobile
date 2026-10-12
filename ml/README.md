@@ -11,14 +11,22 @@ This is the experimental ML pipeline for Jarvis. It is a practical first step to
 
 ## Seed dataset added
 
-`ml/data/seed_train.jsonl` contains 92 original Portuguese examples (76 concise knowledge/assistant-behavior examples and 16 Android tool examples). It is a **starter set**, not enough to create broad intelligence or reliably teach all of programming. It is useful for exercising the data pipeline and beginning controlled experiments.
+`ml/data/seed_train.jsonl` contains the initial Portuguese seed set. `ml/data/seed_technical_pt.jsonl` adds 107 technical examples. `ml/data/seed_combined_train.jsonl` combines the two files (199 records) for a larger initial experiment, and `ml/data/seed_validation.jsonl` contains 12 held-out cases. This remains a **small starter corpus**, not enough to create broad intelligence or reliably teach all of programming. Some topics overlap conceptually; validation must be reviewed for leakage and the tiny validation set is only a smoke test.
 
-Use it directly for an initial training smoke test:
+Validate the expanded files before training:
 
 ```bash
-python ml/validate_dataset.py ml/data/seed_train.jsonl
-python ml/train_lora.py --train ml/data/seed_train.jsonl --output ml/artifacts/jarvis-seed
+python ml/validate_dataset.py ml/data/seed_combined_train.jsonl
+python ml/validate_dataset.py ml/data/seed_validation.jsonl
 ```
+
+On Windows, after installing `ml/requirements.txt`, run the repeatable longer experiment:
+
+```powershell
+.\\ml\\train_intensive.ps1
+```
+
+The script uses 5 epochs, batch size 1, gradient accumulation 8 and learning rate `5e-5`, then runs evaluation. These are experiment settings, not a guarantee of better quality. Watch memory use; stop if the machine becomes unstable. Do not run it on a production service.
 
 For a meaningful evaluation, keep a separate, reviewed test set that is not included in training. Do not evaluate only on training examples. The small existing `ml/data/test.jsonl` is mainly an Android-tool smoke test, not a broad benchmark.
 
