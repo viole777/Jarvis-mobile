@@ -23,7 +23,8 @@ jobs:
         run: python -m py_compile ml/*.py ml/tests/*.py
       - name: Unit-test output parsing
         run: python -m unittest discover -s ml/tests -v
-      - name: Validate starter training dataset
+      - name: Validate datasets
         run: |
           python ml/validate_dataset.py ml/data/train.jsonl
           python ml/validate_dataset.py ml/data/test.jsonl
+          python ml/validate_dataset.py ml/data/seed_train.jsonl
