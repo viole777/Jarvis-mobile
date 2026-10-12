@@ -30,6 +30,22 @@ The script uses 5 epochs, batch size 1, gradient accumulation 8 and learning rat
 
 For a meaningful evaluation, keep a separate, reviewed test set that is not included in training. Do not evaluate only on training examples. The small existing `ml/data/test.jsonl` is mainly an Android-tool smoke test, not a broad benchmark.
 
+## Treinar pelo celular usando Google Colab
+
+Como o treino local depende de um computador, existe um notebook preparado para iniciar o experimento numa GPU de nuvem quando o Colab disponibilizar uma:
+
+- Notebook: [ml/colab/Jarvis_LoRA_Training.ipynb](colab/Jarvis_LoRA_Training.ipynb)
+- [Abrir diretamente no Google Colab](https://colab.research.google.com/github/viole777/Jarvis-mobile/blob/main/ml/colab/Jarvis_LoRA_Training.ipynb)
+
+Passos pelo celular:
+1. Abra o link do Colab e entre na sua conta Google.
+2. No menu de ambiente de execução, selecione uma GPU se houver disponibilidade.
+3. Execute as células de cima para baixo e autorize o acesso ao Google Drive.
+4. Aguarde o treino e a avaliação terminarem; confirme que os arquivos foram gravados em `MyDrive/Jarvis-training/jarvis-intensive-lora`.
+5. Se houver erro, salve a mensagem completa para investigar antes de repetir o treino.
+
+**Atenção:** o Colab gratuito pode não oferecer GPU ou pode encerrar a sessão. O notebook guarda os resultados no Drive, mas o treinamento ainda não foi executado só por adicionar esse arquivo ao repositório. Não coloque credenciais ou chaves de API no notebook.
+
 ## Independence model
 
 - **Inference:** a trained model and its weights can be run without calling a teacher API, if the target device has a compatible inference runtime and sufficient resources.
