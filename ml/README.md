@@ -1,29 +1,42 @@
 # Jarvis SLM and teacher-learning pipeline
 
-This is the initial **experimental** ML pipeline for Jarvis. The current training examples focus on Android tool selection; this is not yet a general-purpose Jarvis brain, and it does not imply consciousness.
+This is the experimental ML pipeline for Jarvis. It is a practical first step toward a compact assistant, not a general-purpose brain and not evidence of consciousness.
 
-## What is implemented vs. not yet proven
+## Current status
 
-- **Implemented as code:** teacher-example generation, strict JSONL/tool-shape validation, deduplication and train/validation/test splitting, LoRA fine-tuning, model inference, and held-out prediction metrics.
-- **CI-checked:** Python syntax, output-parser unit tests, and starter dataset validation. See the GitHub Actions workflow.
-- **Not yet demonstrated:** a completed neural training run, a trained checkpoint, measured accuracy improvement, or integration of the trained model into the Android/web runtime.
-- **Starter data is tiny:** the checked-in train/test JSONL files contain only a handful of Android commands. They are smoke-test fixtures, not sufficient training data.
-- **Scope limitation:** the current teacher generator focuses on Android tool calls/final actions. It does not teach broad reasoning, coding, or general conversation by itself.
+- **Implemented:** teacher-example generation, JSONL validation, deduplication/splitting, LoRA fine-tuning, local inference, and held-out prediction metrics.
+- **CI-checked:** Python syntax, output-parser tests, and the checked-in datasets.
+- **Not yet demonstrated:** a completed neural training run, a trained checkpoint, a measured improvement, or model integration into the Android/web runtime.
+- **Important:** adding text to a repository does not change model weights. Examples only affect behavior after they are used in training; a corpus can also be searched at runtime if a retrieval system is implemented.
+
+## Seed dataset added
+
+`ml/data/seed_train.jsonl` contains 92 original Portuguese examples (76 concise knowledge/assistant-behavior examples and 16 Android tool examples). It is a **starter set**, not enough to create broad intelligence or reliably teach all of programming. It is useful for exercising the data pipeline and beginning controlled experiments.
+
+Use it directly for an initial training smoke test:
+
+```bash
+python ml/validate_dataset.py ml/data/seed_train.jsonl
+python ml/train_lora.py --train ml/data/seed_train.jsonl --output ml/artifacts/jarvis-seed
+```
+
+For a meaningful evaluation, keep a separate, reviewed test set that is not included in training. Do not evaluate only on training examples. The small existing `ml/data/test.jsonl` is mainly an Android-tool smoke test, not a broad benchmark.
 
 ## Independence model
 
-- **Inference:** once trained and deployed with its weights, the student can run without calling a teacher API.
+- **Inference:** a trained model and its weights can be run without calling a teacher API, if the target device has a compatible inference runtime and sufficient resources.
 - **Teaching:** external models are optional data generators during development. They are not required at runtime.
-- **Learning:** teacher outputs are candidate examples, not truth. Review them, split datasets, train a new checkpoint, and evaluate before promotion.
-- **Safety:** the model never replaces Android's Safety Engine or explicit confirmation for consequential actions.
+- **Learning:** teacher outputs are candidate examples, not truth. Review factual accuracy, safety, licensing, duplicates, and train/test leakage before training.
+- **Memory is not weight learning:** saving a conversation does not automatically retrain the neural network.
+- **Safety:** a language model must not bypass Android permissions, the Safety Engine, or explicit confirmation for consequential actions.
 
-## Existing student model
+## Student model
 
-The current SFT path starts from `Qwen/Qwen3-0.6B` and applies LoRA. This is a pretrained model, not a model trained from zero. It uses its own tokenizer and vocabulary. **Do not replace the Qwen tokenizer with `train_tokenizer.py` output**: pretrained embedding and output weights are tied to the original vocabulary.
+The current SFT path starts from `Qwen/Qwen3-0.6B` and applies LoRA. This is a pretrained model, not a model trained from scratch. It uses its own tokenizer and vocabulary. **Do not replace the Qwen tokenizer with `train_tokenizer.py` output**: pretrained embedding and output weights are tied to the original vocabulary.
 
 ## 1. Install
 
-Use Python 3.11 or 3.12 in a virtual environment on a machine with enough memory. Training is best done on a GPU; CPU training may be very slow.
+Use Python 3.11 or 3.12 in a virtual environment. Training is best done on a compatible GPU; CPU training may be very slow.
 
 ```bash
 python -m venv .venv
@@ -32,9 +45,9 @@ python -m venv .venv
 pip install -r ml/requirements.txt
 ```
 
-## 2. Generate candidate lessons with a teacher
+## 2. Generate candidate lessons with a teacher (optional)
 
-Set a provider API key only on your trusted training machine. It is used to generate data, not for Jarvis inference. Choose a model that your provider actually makes available:
+Set a provider API key only on your trusted training machine. It is used to generate candidate data, not for Jarvis inference. Choose a model actually available to your account:
 
 ```powershell
 $env:OPENAI_API_KEY="..."
@@ -42,9 +55,9 @@ $env:TEACHER_MODEL="your-available-model-id"
 python ml/generate_synthetic.py --count 100 --batch-size 20 --output ml/data/generated.jsonl
 ```
 
-Do not commit keys or generated datasets containing personal/sensitive data. Teacher generation may incur provider costs. The script intentionally does not assume a particular model ID.
+Teacher generation may incur provider costs. Do not commit keys or datasets containing personal/sensitive data. The generator intentionally does not assume a particular model ID.
 
-## 3. Validate and split data
+## 3. Validate and split generated data
 
 ```bash
 python ml/teacher_pipeline.py --input ml/data/generated.jsonl --output-dir ml/data/prepared --seed 42
@@ -53,45 +66,43 @@ python ml/validate_dataset.py ml/data/prepared/validation.jsonl
 python ml/validate_dataset.py ml/data/prepared/test.jsonl
 ```
 
-Invalid rows stop the pipeline instead of silently entering training. The pipeline validates tool names/argument shapes, deduplicates exact examples and produces deterministic train/validation/test splits. Review generated examples for factual errors, unsafe behavior, and duplicates before training.
+Invalid rows stop the pipeline. The pipeline validates supported tool names/argument shapes, deduplicates exact examples and creates deterministic train/validation/test splits. It cannot prove factual truth; manually review generated lessons before training.
 
 ## 4. Train the student adapter
-
-For training with validation metrics:
 
 ```bash
 python ml/train_lora.py --train ml/data/prepared/train.jsonl --validation ml/data/prepared/validation.jsonl --output ml/artifacts/jarvis-slm
 ```
 
-Optional parameters include `--model`, `--epochs`, `--batch-size`, `--gradient-accumulation` and `--learning-rate`. Run training on a machine with appropriate resources. Do not assume the free Render web service can train the model or hold GPU weights.
+Optional parameters include `--model`, `--epochs`, `--batch-size`, `--gradient-accumulation` and `--learning-rate`. Run training on a machine with appropriate resources. A free web-service instance should not be assumed to have a training GPU.
 
-## 5. Evaluate actual predictions and run local inference
+## 5. Evaluate predictions and run local inference
 
 ```bash
 python ml/evaluate.py --dataset ml/data/prepared/test.jsonl --model ml/artifacts/jarvis-slm --predictions ml/artifacts/test-predictions.jsonl
 python ml/infer.py --model ml/artifacts/jarvis-slm --prompt "Abra o Chrome"
 ```
 
-Both scripts support a saved PEFT adapter directory and load the configured base model (default `Qwen/Qwen3-0.6B`). Use `--base-model` if the adapter was trained from another model.
+Both scripts support a saved PEFT adapter and load the configured base model (default `Qwen/Qwen3-0.6B`). Use `--base-model` if the adapter was trained from another model.
 
-The evaluator runs inference and reports JSON parseability, action accuracy, tool selection accuracy, tool-argument exact match and full-payload exact match on the held-out examples. These metrics are meaningful only relative to the supplied dataset; exact text match is not a general measure of reasoning. A larger, reviewed, diverse test set is required before claiming improvement.
+The evaluator measures JSON parseability, action accuracy, tool selection, exact tool arguments, and full-payload exact match. These metrics only describe the supplied test set; exact-match scores are not a general measure of reasoning. Keep a larger, reviewed benchmark before claiming improvement.
 
-Run lightweight unit tests with:
+Run lightweight tests:
 
 ```bash
 python -m unittest discover -s ml/tests -v
 ```
 
-## 6. Optional: train a tokenizer for a future from-scratch Jarvis model
+## 6. Optional tokenizer for a future from-scratch model
 
 ```bash
 python ml/train_tokenizer.py --corpus ml/data/language_corpus.txt --vocab-size 8000 --output ml/artifacts/jarvis-tokenizer.json
 ```
 
-The corpus file must be created from reviewed, licensed/usable text. This creates a BPE tokenizer only; it does not train a neural model. It is for a future model whose embeddings and output layer are trained from scratch, not for the Qwen LoRA path.
+This trains a BPE tokenizer only, not a neural model. Use reviewed, licensed/usable text. It is for a future model whose embeddings and output layer are trained from scratch, not for the Qwen LoRA path.
 
 ## Pipeline
 
-Teacher -> candidate examples -> strict validation/review -> deduplicated splits -> SFT/LoRA -> held-out prediction evaluation -> versioned checkpoint -> explicit promotion.
+Candidate lessons -> validation/review -> deduplicated splits -> SFT/LoRA -> held-out evaluation -> versioned checkpoint -> explicit promotion.
 
-Do not update production weights directly from a conversation or accept every teacher response as correct. Keep old checkpoints so a regression can be rolled back. The next major project step is to expand beyond Android command data and integrate model inference into the actual multiplatform Jarvis runtime.
+The next major engineering step is integrating a real inference provider into the actual Jarvis runtime. The current browser UI's reply logic remains separate from this training pipeline, so training this adapter will not automatically remove the existing generic `if/else` responses.
