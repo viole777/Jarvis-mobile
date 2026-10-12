@@ -1,12 +1,20 @@
 # Jarvis SLM and teacher-learning pipeline
 
-This folder contains the first practical training pipeline for Jarvis's small language model (SLM), focused on intent classification and Android tool selection. It is not a general-purpose model and does not imply consciousness.
+This is the initial **experimental** ML pipeline for Jarvis. The current training examples focus on Android tool selection; this is not yet a general-purpose Jarvis brain, and it does not imply consciousness.
+
+## What is implemented vs. not yet proven
+
+- **Implemented as code:** teacher-example generation, strict JSONL/tool-shape validation, deduplication and train/validation/test splitting, LoRA fine-tuning, model inference, and held-out prediction metrics.
+- **CI-checked:** Python syntax, output-parser unit tests, and starter dataset validation. See the GitHub Actions workflow.
+- **Not yet demonstrated:** a completed neural training run, a trained checkpoint, measured accuracy improvement, or integration of the trained model into the Android/web runtime.
+- **Starter data is tiny:** the checked-in train/test JSONL files contain only a handful of Android commands. They are smoke-test fixtures, not sufficient training data.
+- **Scope limitation:** the current teacher generator focuses on Android tool calls/final actions. It does not teach broad reasoning, coding, or general conversation by itself.
 
 ## Independence model
 
 - **Inference:** once trained and deployed with its weights, the student can run without calling a teacher API.
 - **Teaching:** external models are optional data generators during development. They are not required at runtime.
-- **Learning:** teacher outputs are candidate examples, not truth. Validate them, split datasets, train a new checkpoint, and evaluate before promotion.
+- **Learning:** teacher outputs are candidate examples, not truth. Review them, split datasets, train a new checkpoint, and evaluate before promotion.
 - **Safety:** the model never replaces Android's Safety Engine or explicit confirmation for consequential actions.
 
 ## Existing student model
@@ -28,8 +36,7 @@ pip install -r ml/requirements.txt
 
 Set a provider API key only on your trusted training machine. It is used to generate data, not for Jarvis inference. Choose a model that your provider actually makes available:
 
-```bash
-# Windows PowerShell
+```powershell
 $env:OPENAI_API_KEY="..."
 $env:TEACHER_MODEL="your-available-model-id"
 python ml/generate_synthetic.py --count 100 --batch-size 20 --output ml/data/generated.jsonl
@@ -50,20 +57,30 @@ Invalid rows stop the pipeline instead of silently entering training. The pipeli
 
 ## 4. Train the student adapter
 
+For training with validation metrics:
+
 ```bash
-python ml/train_lora.py --train ml/data/prepared/train.jsonl --output ml/artifacts/jarvis-slm
+python ml/train_lora.py --train ml/data/prepared/train.jsonl --validation ml/data/prepared/validation.jsonl --output ml/artifacts/jarvis-slm
 ```
 
-Run training on a machine with appropriate resources. Do not assume the free Render web service can train the model or hold GPU weights.
+Optional parameters include `--model`, `--epochs`, `--batch-size`, `--gradient-accumulation` and `--learning-rate`. Run training on a machine with appropriate resources. Do not assume the free Render web service can train the model or hold GPU weights.
 
-## 5. Evaluate and run local inference
+## 5. Evaluate actual predictions and run local inference
 
 ```bash
-python ml/evaluate.py --dataset ml/data/prepared/test.jsonl
+python ml/evaluate.py --dataset ml/data/prepared/test.jsonl --model ml/artifacts/jarvis-slm --predictions ml/artifacts/test-predictions.jsonl
 python ml/infer.py --model ml/artifacts/jarvis-slm --prompt "Abra o Chrome"
 ```
 
-The current `evaluate.py` performs a dataset-format/count check; it does **not** measure model predictions or accuracy. Do not report it as a model benchmark. A true benchmark must run the trained model against held-out prompts and compare parsed predicted actions/arguments to expected outputs.
+Both scripts support a saved PEFT adapter directory and load the configured base model (default `Qwen/Qwen3-0.6B`). Use `--base-model` if the adapter was trained from another model.
+
+The evaluator runs inference and reports JSON parseability, action accuracy, tool selection accuracy, tool-argument exact match and full-payload exact match on the held-out examples. These metrics are meaningful only relative to the supplied dataset; exact text match is not a general measure of reasoning. A larger, reviewed, diverse test set is required before claiming improvement.
+
+Run lightweight unit tests with:
+
+```bash
+python -m unittest discover -s ml/tests -v
+```
 
 ## 6. Optional: train a tokenizer for a future from-scratch Jarvis model
 
@@ -75,6 +92,6 @@ The corpus file must be created from reviewed, licensed/usable text. This create
 
 ## Pipeline
 
-Teacher -> candidate examples -> strict validation/review -> deduplicated splits -> SFT/LoRA -> held-out evaluation -> versioned checkpoint -> explicit promotion.
+Teacher -> candidate examples -> strict validation/review -> deduplicated splits -> SFT/LoRA -> held-out prediction evaluation -> versioned checkpoint -> explicit promotion.
 
-Do not update production weights directly from a conversation or accept every teacher response as correct. Keep old checkpoints so a regression can be rolled back.
+Do not update production weights directly from a conversation or accept every teacher response as correct. Keep old checkpoints so a regression can be rolled back. The next major project step is to expand beyond Android command data and integrate model inference into the actual multiplatform Jarvis runtime.
