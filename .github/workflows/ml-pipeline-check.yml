@@ -28,3 +28,6 @@ jobs:
           python ml/validate_dataset.py ml/data/train.jsonl
           python ml/validate_dataset.py ml/data/test.jsonl
           python ml/validate_dataset.py ml/data/seed_train.jsonl
+          python ml/validate_dataset.py ml/data/seed_technical_pt.jsonl
+          python ml/validate_dataset.py ml/data/seed_combined_train.jsonl
+          python ml/validate_dataset.py ml/data/seed_validation.jsonl
