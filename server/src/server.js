@@ -131,28 +131,47 @@ function validateMessages(messages) {
   return messages;
 }
 
+const GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+async function discoverGeminiModel(apiKey) {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + encodeURIComponent(apiKey), { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(12000) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof data.error?.message === "string" ? data.error.message.slice(0, 300) : "HTTP " + response.status;
+    throw Object.assign(new Error("Não consegui consultar os modelos do Gemini: " + message), { statusCode: response.status === 401 || response.status === 403 ? 400 : 502 });
+  }
+  const models = (Array.isArray(data.models) ? data.models : []).filter((item) => Array.isArray(item.supportedGenerationMethods) && item.supportedGenerationMethods.includes("generateContent") && typeof item.name === "string" && item.name.includes("gemini-") && !/embedding|aqa|tts|image-generation/i.test(item.name));
+  const preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  for (const name of preferred) { const match = models.find((item) => item.name.endsWith("/" + name)); if (match) return match.name.split("/").pop(); }
+  const selected = models.find((item) => /flash/i.test(item.name)) || models[0];
+  if (!selected) throw Object.assign(new Error("A API do Gemini não listou modelos de geração compatíveis para esta chave."), { statusCode: 400 });
+  return selected.name.split("/").pop();
+}
 async function handleSetupAisa(req, res) {
   if (!requireAgentAuth(req, res)) return;
   if (!rateLimit(req, res)) return;
   const input = await body(req);
   const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
-  const model = typeof input.model === "string" ? input.model.trim() : "";
+  const provider = String(input.provider || "gemini").toLowerCase();
   if (apiKey.length < 16 || apiKey.length > 4096 || /\\s/.test(apiKey)) {
     return json(res, 400, { error: "A chave parece inválida. Verifique o valor e tente novamente." });
   }
-  const selectedModel = model || aisa.model || process.env.AISA_MODEL || "";
-  if (!selectedModel || selectedModel.length > 200) {
-    return json(res, 400, { error: "Chave recebida com segurança, mas falta o ID do modelo. Informe um modelo habilitado na sua conta AIsa." });
-  }
+  if (provider !== "gemini") return json(res, 400, { error: "Este fluxo automático aceita Gemini; outros provedores exigem credenciais autorizadas." });
+  let selectedModel;
+  try { selectedModel = await discoverGeminiModel(apiKey); }
+  catch (error) { return json(res, Number(error.statusCode) || 502, { error: error.message || "Falha ao descobrir modelos do Gemini." }); }
   const client = getAisaForRequest(req);
+  client.baseUrl = GEMINI_OPENAI_BASE_URL;
   client.configure({ apiKey, model: selectedModel });
   return json(res, 200, {
     ok: true,
     configured: client.isConfigured(),
+    provider: "gemini",
+    model: selectedModel,
     persistence: getSession(req) ? "session_until_expiry_or_restart" : "memory_until_server_restart",
     message: getSession(req)
-      ? "AIsa configurada apenas para esta sessão do navegador. A chave não foi salva no histórico."
-      : "AIsa configurada em memória. Para persistir após reinícios, configure AISA_API_KEY no gerenciador de segredos do servidor."
+      ? "Gemini conectado. Modelo descoberto automaticamente: " + selectedModel + ". A chave não foi salva no histórico."
+      : "Gemini conectado. Modelo descoberto automaticamente: " + selectedModel + ". Para manter a configuração após reinícios, configure os segredos no host."
   });
 }
 
