@@ -126,7 +126,7 @@ async function handleAgent(req, res) {
   const selectedSkills = loadSkills(input.skills);
   const skillPrompt = skillsSystemMessage(selectedSkills);
   const agentMessages = skillPrompt
-    ? [{ role: "system", content: skillPrompt }, ...messages].slice(-40)
+    ? [{ role: "system", content: skillPrompt }, ...messages].slice(-39)
     : messages;
   const result = await aisa.complete({ messages: agentMessages, tools });
   return json(res, 200, { ...result, skillsUsed: selectedSkills.map((skill) => skill.id) });
