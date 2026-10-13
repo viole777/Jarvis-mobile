@@ -89,3 +89,29 @@ test("automatically retries a configured fallback after provider quota/rate-limi
     globalThis.fetch = originalFetch;
   }
 });
+
+test("preserves validated image parts for multimodal requests", async () => {
+  const originalFetch = globalThis.fetch;
+  let payload;
+  globalThis.fetch = async (_url, options) => {
+    payload = JSON.parse(options.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Vejo uma imagem.", tool_calls: [] } }] }), {
+      status: 200, headers: { "Content-Type": "application/json" }
+    });
+  };
+  try {
+    const client = new AIsaModelClient({ apiKey: "test-key", model: "vision-model" });
+    await client.complete({
+      messages: [{ role: "user", content: [
+        { type: "text", text: "Descreva a imagem" },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,ZmFrZQ==" } },
+        { type: "image_url", image_url: { url: "https://example.com/remote.png" } }
+      ] }]
+    });
+    assert.equal(payload.messages[0].content.length, 2);
+    assert.equal(payload.messages[0].content[0].text, "Descreva a imagem");
+    assert.equal(payload.messages[0].content[1].image_url.url, "data:image/jpeg;base64,ZmFrZQ==");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
