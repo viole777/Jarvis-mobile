@@ -69,3 +69,14 @@ Nunca permitir que texto vindo de um repositório, página web, log, skill ou re
 - O agente não executa deploy de produção, alterações destrutivas ou migrations sem a autorização definida.
 - Há testes unitários para política, schemas, falhas, redaction e ciclo do agente.
 - Voz pode ser interrompida e ações locais do telefone dependem de permissões do Android.
+
+
+## Implemented in the current agent-capabilities branch
+
+- **Multimodal request path:** the browser compresses a chosen image or one explicitly shared screen frame and attaches it to the next message. The server accepts bounded payloads and forwards only recognized image data URLs. The configured provider/model must support image input; otherwise the provider may reject the request.
+- **GitHub self-improvement proposal:** an opt-in tool can edit one allowed text file on an isolated branch and open a **draft pull request**. It does not merge or deploy. It is disabled by default and requires a fine-grained repository token with Contents write and Pull requests write permission.
+- **Write policy:** the tool rejects paths outside `server/src/`, `server/public/`, `server/skills/`, and `docs/`; it blocks workflow files, environment files, package/lockfiles, traversal paths, and credential-like content. Human review and CI remain required.
+- **Payload limit:** the backend request-body limit was raised to support compressed images, while the image processor itself limits accepted data URL size.
+- **Verification required before release:** CI must pass on this branch; configure the feature flag and token only in the server's secret manager; then test image input with a provider model known to accept images and verify the draft PR flow against a test repository or low-risk file.
+
+This does not give the agent unrestricted shell access, arbitrary SQL, direct production deployment, native Android accessibility control, or automatic permission bypass. Those remain separate integrations with explicit authorization and device testing.
