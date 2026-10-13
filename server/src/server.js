@@ -19,7 +19,7 @@ const aisa = new AIsaModelClient();
 const requestCounts = new Map();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_CHAT_REQUESTS_PER_WINDOW = 30;
-const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_BODY_BYTES = 7 * 1024 * 1024;
 
 function json(res, status, body) {
   const data = JSON.stringify(body);
