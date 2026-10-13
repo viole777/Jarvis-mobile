@@ -82,7 +82,7 @@ async function createSession(req, res) {
   if (!rateLimit(req, res)) return;
   cleanupSessions();
   const token = randomBytes(32).toString("base64url");
-  const client = new AIsaModelClient();
+  const client = new AIsaModelClient({ apiKey: "", model: process.env.AISA_MODEL || "", baseUrl: process.env.AISA_BASE_URL, fallbacks: [] });
   sessions.set(token, { aisa: client, createdAt: Date.now(), lastUsedAt: Date.now() });
   return json(res, 201, {
     ok: true,
