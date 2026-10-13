@@ -14,13 +14,7 @@ export const JARVIS_TOOLS = [
   ] },
   { name: "list_own_repo_directory", description: "List files and directories in the public viole777/Jarvis-mobile GitHub repository.", parameters: [
     { name: "path", type: "string", required: false, description: "Repository-relative directory path; empty for repository root" }
-  ] },
-  { name: "propose_github_file_change", description: "Prepare a code/document change on the Jarvis repository. This only stages a proposal; a human must explicitly approve before a branch, commit, or pull request is created. Never include secrets.", parameters: [
-    { name: "path", type: "string", required: true, description: "Repository-relative path of the file to create or replace" },
-    { name: "content", type: "string", required: true, description: "Complete new file contents, maximum 80 KB" },
-    { name: "message", type: "string", required: true, description: "Short commit and pull request title" }
-  ] }
-];
+  ] }];
 
 async function githubJson(url) {
   const headers = { "Accept": "application/vnd.github+json", "User-Agent": "Jarvis-Agent/1.0", "X-GitHub-Api-Version": "2022-11-28" };
