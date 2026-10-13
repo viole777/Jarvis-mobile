@@ -140,9 +140,15 @@ export class AIsaModelClient {
       if (!response.ok) {
         const upstreamMessage = typeof data.error?.message === "string" ? data.error.message.slice(0, 500) : "resposta HTTP " + response.status;
         const errorText = String(data.error?.code || "") + " " + upstreamMessage;
-        const retryable = response.status === 429 || response.status === 404 || response.status >= 500 || /context.?length|token limit|maximum context|quota|rate.?limit|insufficient_quota|model.*(?:unavailable|not found|unsupported)/i.test(errorText);
-        lastError = new Error("O modelo " + candidate.model + " recusou a solicitação: " + upstreamMessage);
-        lastError.statusCode = response.status === 429 ? 429 : 502;
+        // Keep the provider's diagnostic details, but never include request headers or API credentials.
+        const retryable = response.status === 400 || response.status === 404 || response.status === 408 ||
+          response.status === 409 || response.status === 429 || response.status >= 500 ||
+          /context.?length|token limit|maximum context|quota|rate.?limit|insufficient_quota|model.*(?:unavailable|not found|unsupported)|unsupported.*(?:parameter|field)|invalid.*(?:model|request|parameter)/i.test(errorText);
+        lastError = Object.assign(
+          new Error("O modelo " + candidate.model + " recusou a solicitação (HTTP " + response.status + "): " + upstreamMessage),
+          { statusCode: response.status === 429 ? 429 : response.status === 400 ? 400 : 502, providerStatus: response.status, model: candidate.model }
+        );
+        // A 400 can be model-specific. Try discovered compatible candidates before failing.
         if (retryable && index < candidates.length - 1) continue;
         throw lastError;
       }
