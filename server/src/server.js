@@ -142,10 +142,12 @@ async function discoverGeminiModel(apiKey) {
   }
   const models = (Array.isArray(data.models) ? data.models : []).filter((item) => Array.isArray(item.supportedGenerationMethods) && item.supportedGenerationMethods.includes("generateContent") && typeof item.name === "string" && item.name.includes("gemini-") && !/embedding|aqa|tts|image-generation/i.test(item.name));
   const preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-  for (const name of preferred) { const match = models.find((item) => item.name.endsWith("/" + name)); if (match) return match.name.split("/").pop(); }
-  const selected = models.find((item) => /flash/i.test(item.name)) || models[0];
+  let selected = null;
+  for (const name of preferred) { selected = models.find((item) => item.name.endsWith("/" + name)); if (selected) break; }
+  selected = selected || models.find((item) => /flash/i.test(item.name)) || models[0];
   if (!selected) throw Object.assign(new Error("A API do Gemini não listou modelos de geração compatíveis para esta chave."), { statusCode: 400 });
-  return selected.name.split("/").pop();
+  const modelIds = models.map((item) => item.name.split("/").pop()).filter((name, index, all) => name && all.indexOf(name) === index);
+  return { primary: selected.name.split("/").pop(), fallbacks: modelIds.filter((name) => name !== selected.name.split("/").pop()).slice(0, 5) };
 }
 async function handleSetupAisa(req, res) {
   if (!requireAgentAuth(req, res)) return;
@@ -157,12 +159,14 @@ async function handleSetupAisa(req, res) {
     return json(res, 400, { error: "A chave parece inválida. Verifique o valor e tente novamente." });
   }
   if (provider !== "gemini") return json(res, 400, { error: "Este fluxo automático aceita Gemini; outros provedores exigem credenciais autorizadas." });
-  let selectedModel;
-  try { selectedModel = await discoverGeminiModel(apiKey); }
+  let discovery;
+  try { discovery = await discoverGeminiModel(apiKey); }
   catch (error) { return json(res, Number(error.statusCode) || 502, { error: error.message || "Falha ao descobrir modelos do Gemini." }); }
+  const selectedModel = discovery.primary;
   const client = getAisaForRequest(req);
   client.baseUrl = GEMINI_OPENAI_BASE_URL;
   client.configure({ apiKey, model: selectedModel });
+  client.fallbacks = discovery.fallbacks.map((model) => ({ apiKey, model, baseUrl: GEMINI_OPENAI_BASE_URL }));
   return json(res, 200, {
     ok: true,
     configured: client.isConfigured(),
