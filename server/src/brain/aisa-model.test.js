@@ -115,3 +115,50 @@ test("preserves validated image parts for multimodal requests", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("automatically tries compatible fallback models after HTTP 400", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (_url, options) => {
+    const model = JSON.parse(options.body).model;
+    calls.push(model);
+    if (model === "primary-model") {
+      return new Response(JSON.stringify({ error: { message: "Unsupported parameter for this model" } }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Recuperação concluída", tool_calls: [] } }] }), { status: 200 });
+  };
+  try {
+    const client = new AIsaModelClient({
+      apiKey: "test-only-key",
+      model: "primary-model",
+      baseUrl: "https://primary.example/v1",
+      fallbacks: [{ apiKey: "test-only-key", model: "compatible-fallback", baseUrl: "https://primary.example/v1" }]
+    });
+    const result = await client.complete({ messages: [{ role: "user", content: "Oi" }] });
+    assert.deepEqual(calls, ["primary-model", "compatible-fallback"]);
+    assert.equal(result.text, "Recuperação concluída");
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.model, "compatible-fallback");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("returns the upstream HTTP 400 diagnostic when no fallback exists", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    error: { message: "Invalid request payload" }
+  }), { status: 400 });
+  try {
+    const client = new AIsaModelClient({ apiKey: "test-only-key", model: "broken-model" });
+    await assert.rejects(client.complete({ messages: [{ role: "user", content: "Oi" }] }), (error) => {
+      assert.match(error.message, /HTTP 400/);
+      assert.match(error.message, /Invalid request payload/);
+      assert.equal(error.providerStatus, 400);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
