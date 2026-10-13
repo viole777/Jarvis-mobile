@@ -85,6 +85,28 @@ function validateMessages(messages) {
   return messages;
 }
 
+async function handleSetupAisa(req, res) {
+  if (!requireAgentAuth(req, res)) return;
+  if (!rateLimit(req, res)) return;
+  const input = await body(req);
+  const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
+  const model = typeof input.model === "string" ? input.model.trim() : "";
+  if (apiKey.length < 16 || apiKey.length > 4096 || /\\s/.test(apiKey)) {
+    return json(res, 400, { error: "A chave parece inválida. Verifique o valor e tente novamente." });
+  }
+  const selectedModel = model || aisa.model || process.env.AISA_MODEL || "";
+  if (!selectedModel || selectedModel.length > 200) {
+    return json(res, 400, { error: "Chave recebida com segurança, mas falta o ID do modelo. Informe um modelo habilitado na sua conta AIsa." });
+  }
+  aisa.configure({ apiKey, model: selectedModel });
+  return json(res, 200, {
+    ok: true,
+    configured: aisa.isConfigured(),
+    persistence: "memory_until_server_restart",
+    message: "AIsa configurada em memória. Para persistir após reinícios, configure AISA_API_KEY no gerenciador de segredos do servidor."
+  });
+}
+
 async function handleChat(req, res) {
   if (!requireAgentAuth(req, res)) return;
   if (!rateLimit(req, res)) return;
@@ -135,6 +157,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true, service: "jarvis-server", aisaConfigured: aisa.isConfigured() });
     }
+    if (req.method === "POST" && url.pathname === "/v1/setup/aisa") return await handleSetupAisa(req, res);
     if (req.method === "POST" && url.pathname === "/v1/chat") return await handleChat(req, res);
     if (req.method === "POST" && url.pathname === "/v1/agent") return await handleAgent(req, res);
     if (req.method === "GET" && url.pathname === "/v1/cognitive/state") {
