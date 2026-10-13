@@ -121,7 +121,7 @@ export async function executeJarvisTool(name, args = {}, { aisa, listSkills } = 
       const content = typeof args.content === "string" ? args.content : "";
       const message = typeof args.message === "string" ? args.message.trim() : "";
       if (!filePath || filePath.startsWith("/") || filePath.split("/").some((part) => part === "..") || filePath.includes("\\\\") || filePath.length > 240) return jsonResult({ error: "Invalid repository-relative path." });
-      if (/(^|\\/)(\\.env(\\.|$)|secrets?(\\.|$)|credentials?(\\.|$))/i.test(filePath) || /(^|\\/)\\.github\\/workflows\\//i.test(filePath)) return jsonResult({ error: "This path is blocked for automated edits; review and make the change manually." });
+      if (filePath.split("/").some((part) => { const lower = part.toLowerCase(); return lower === ".env" || lower.startsWith(".env.") || lower.includes("secret") || lower.includes("credential"); }) || filePath.startsWith(".github/workflows/")) return jsonResult({ error: "This path is blocked for automated edits; review and make the change manually." });
       if (!content || Buffer.byteLength(content, "utf8") > 80_000 || !message || message.length > 240) return jsonResult({ error: "Content is required (maximum 80 KB) and message must be 1-240 characters." });
       const id = crypto.randomUUID();
       const now = Date.now();
