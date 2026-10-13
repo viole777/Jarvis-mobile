@@ -58,7 +58,7 @@ export class AIsaModelClient {
   constructor({ apiKey = process.env.AISA_API_KEY, model = process.env.AISA_MODEL, baseUrl = process.env.AISA_BASE_URL || DEFAULT_BASE_URL, fallbacks } = {}) {
     this.apiKey = apiKey;
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\\/+$/, "");
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.fallbacks = Array.isArray(fallbacks) ? fallbacks : this.readFallbacks();
   }
 
@@ -68,7 +68,7 @@ export class AIsaModelClient {
       if (!Array.isArray(entries)) return [];
       return entries.slice(0, 5).map((entry) => ({
         model: typeof entry.model === "string" ? entry.model.trim() : "",
-        baseUrl: typeof entry.baseUrl === "string" ? entry.baseUrl.replace(/\\/+$/, "") : this.baseUrl,
+        baseUrl: typeof entry.baseUrl === "string" ? entry.baseUrl.replace(/\/+$/, "") : this.baseUrl,
         apiKey: typeof entry.apiKeyEnv === "string" ? process.env[entry.apiKeyEnv] : ""
       })).filter((entry) => entry.model && entry.apiKey && /^https:\/\//i.test(entry.baseUrl));
     } catch {
