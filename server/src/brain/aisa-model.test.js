@@ -52,3 +52,12 @@ test("sends OpenAI-compatible chat and tool schemas to AIsa", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("allows runtime configuration without exposing credentials in status", () => {
+  const client = new AIsaModelClient({ apiKey: "", model: "" });
+  assert.equal(client.isConfigured(), false);
+  assert.equal(client.configure({ apiKey: "runtime-test-secret", model: "runtime-model" }), true);
+  assert.equal(client.isConfigured(), true);
+  assert.equal(client.model, "runtime-model");
+});
