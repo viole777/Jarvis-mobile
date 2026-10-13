@@ -140,7 +140,7 @@ export class AIsaModelClient {
       if (!response.ok) {
         const upstreamMessage = typeof data.error?.message === "string" ? data.error.message.slice(0, 500) : "resposta HTTP " + response.status;
         const errorText = String(data.error?.code || "") + " " + upstreamMessage;
-        const retryable = response.status === 429 || /context.?length|token limit|maximum context|quota|rate.?limit|insufficient_quota/i.test(errorText);
+        const retryable = response.status === 429 || response.status === 404 || response.status >= 500 || /context.?length|token limit|maximum context|quota|rate.?limit|insufficient_quota|model.*(?:unavailable|not found|unsupported)/i.test(errorText);
         lastError = new Error("O modelo " + candidate.model + " recusou a solicitação: " + upstreamMessage);
         lastError.statusCode = response.status === 429 ? 429 : 502;
         if (retryable && index < candidates.length - 1) continue;
