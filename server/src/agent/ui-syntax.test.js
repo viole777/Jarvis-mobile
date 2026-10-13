@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 test("Jarvis browser UI inline script has valid JavaScript syntax", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../public");
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
-  const scripts = [...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/g)];
-  assert.ok(scripts.length > 0, "expected an inline browser script");
-  for (const match of scripts) new vm.Script(match[1]);
+  const start = html.indexOf("<script>");
+  const end = html.lastIndexOf("</script>");
+  assert.ok(start >= 0 && end > start, "expected an inline browser script");
+  new vm.Script(html.slice(start + 8, end));
 });
