@@ -60,3 +60,10 @@ A pasta `ml/` contém a primeira fundação da SLM especializada do Jarvis:
 - contrato de saída JSON.
 
 Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para intenção, seleção de ferramentas e argumentos; a Safety Engine do Android continua sendo a autoridade final para execução.
+
+
+## Jarvis V1 — agente com LLM
+
+O backend agora possui um cliente AIsa compatível com Chat Completions, a rota autenticada `POST /v1/chat` para a interface web e `POST /v1/agent` para o cliente Android/tool calling. Configure os segredos no host de deploy seguindo [docs/AISA-V1-SETUP.md](docs/AISA-V1-SETUP.md). A chave AIsa deve ficar apenas no ambiente do servidor.
+
+A integração do modelo não significa que Skills externas do marketplace ou MCP já estejam conectadas. Consulte o guia para limites atuais e passos de segurança.
