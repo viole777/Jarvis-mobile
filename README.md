@@ -64,6 +64,6 @@ Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para in
 
 ## Jarvis V1 — agente com LLM
 
-O backend agora possui um cliente AIsa compatível com Chat Completions, a rota autenticada `POST /v1/chat` para a interface web e `POST /v1/agent` para o cliente Android/tool calling. Configure os segredos no host de deploy seguindo [docs/AISA-V1-SETUP.md](docs/AISA-V1-SETUP.md). A chave AIsa deve ficar apenas no ambiente do servidor.
+O backend agora possui um cliente AIsa compatível com Chat Completions, a rota autenticada `POST /v1/chat` para a interface web e `POST /v1/agent` para o cliente Android/tool calling. Configure os segredos no host de deploy seguindo [docs/AISA-V1-SETUP.md](docs/AISA-V1-SETUP.md). A interface web intercepta prompts como `Configurar AIsa: SUA_CHAVE` e envia a chave ao endpoint autenticado de configuração sem incluí-la no histórico do modelo. Essa configuração por prompt é temporária (memória do processo); para persistência após reinícios, configure `AISA_API_KEY` no gerenciador de segredos do host.
 
 A integração do modelo não significa que Skills externas do marketplace ou MCP já estejam conectadas. Consulte o guia para limites atuais e passos de segurança.
