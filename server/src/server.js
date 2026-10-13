@@ -114,7 +114,7 @@ async function handleChat(req, res) {
   const input = await body(req);
   const messages = validateMessages(input.messages);
   const result = await aisa.complete({ messages, tools: [] });
-  return json(res, 200, { ok: true, text: result.text, model: result.model, usage: result.usage });
+  return json(res, 200, { ok: true, text: result.text, model: result.model, fallbackUsed: Boolean(result.fallbackUsed), usage: result.usage });
 }
 
 async function handleAgent(req, res) {
