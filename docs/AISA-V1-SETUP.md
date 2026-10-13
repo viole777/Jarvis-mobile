@@ -18,13 +18,24 @@ In the backend hosting provider's **server-side environment / secrets** settings
 
 Use the host's secret manager; do not commit real values to `.env.example` or Git. Redeploy/restart the service after adding variables.
 
-## 2. Configure the browser
+## 2. Configure from a Jarvis prompt
 
-Open Jarvis and select **Configurar acesso**. Paste the value of `JARVIS_AUTH_TOKEN` (not `AISA_API_KEY`). It is held in this browser tab's session storage and is sent only to the Jarvis backend. Do not use a shared/public computer for a persistent session; close the tab when finished.
+First configure the separate `JARVIS_AUTH_TOKEN` once using **Configurar acesso**. Then send a message in this form:
+
+```text
+Configurar AIsa: YOUR_NEW_API_KEY
+```
+
+The browser recognizes this setup intent and intercepts it before adding it to chat history or sending it to the LLM. After confirmation, it sends the key over HTTPS to the authenticated `POST /v1/setup/aisa` endpoint. If `AISA_MODEL` is not already configured, Jarvis asks for the exact model ID enabled for your AIsa account.
+
+**Runtime limitation:** this prompt flow stores the key only in server process memory, not in GitHub or browser storage. It is lost when the server restarts/redeploys. For durable configuration, put the key in the hosting provider's secret manager as `AISA_API_KEY`. The prompt flow does not automatically change Render/Vercel environment variables because that requires a separately authorized hosting-provider integration.
+
+You can also open **Configurar acesso** to set the separate `JARVIS_AUTH_TOKEN`; never paste the AIsa key into that field.
 
 ## 3. Test
 
 - Open `/health`. It reports whether the model settings are present, but never returns credentials.
+- The setup endpoint is protected by `JARVIS_AUTH_TOKEN`, rate-limited, and does not log the submitted key. It configures the running process only.
 - Send a simple message in the browser. The backend calls `POST https://api.aisa.one/v1/chat/completions` using the selected model.
 - The Android `HttpModelClient` uses `POST /v1/agent`; AIsa function/tool calls are converted to the OpenAI-compatible schema and returned to the Android agent loop.
 - Check server logs for HTTP status and configuration errors. Logs intentionally do not print request headers or API keys.
