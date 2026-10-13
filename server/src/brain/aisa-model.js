@@ -58,7 +58,13 @@ export class AIsaModelClient {
   constructor({ apiKey = process.env.AISA_API_KEY, model = process.env.AISA_MODEL, baseUrl = process.env.AISA_BASE_URL || DEFAULT_BASE_URL } = {}) {
     this.apiKey = apiKey;
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = baseUrl.replace(/\\/+$/, "");
+  }
+
+  configure({ apiKey, model } = {}) {
+    if (typeof apiKey === "string" && apiKey.trim()) this.apiKey = apiKey.trim();
+    if (typeof model === "string" && model.trim()) this.model = model.trim();
+    return this.isConfigured();
   }
 
   isConfigured() {
@@ -66,8 +72,8 @@ export class AIsaModelClient {
   }
 
   async complete({ messages, tools = [] }) {
-    if (!this.apiKey) throw Object.assign(new Error("AIsa não está configurada: defina AISA_API_KEY no ambiente do servidor."), { statusCode: 503 });
-    if (!this.model) throw Object.assign(new Error("AIsa não está configurada: defina AISA_MODEL com um identificador de modelo válido."), { statusCode: 503 });
+    if (!this.apiKey) throw Object.assign(new Error("AIsa não está configurada: defina AISA_API_KEY no servidor ou use a configuração segura do Jarvis."), { statusCode: 503 });
+    if (!this.model) throw Object.assign(new Error("AIsa não está configurada: defina AISA_MODEL ou informe o identificador de modelo durante a configuração."), { statusCode: 503 });
 
     const payload = {
       model: this.model,
