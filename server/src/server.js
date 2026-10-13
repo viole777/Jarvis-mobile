@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +17,13 @@ const store = new CognitiveStateStore();
 const self = new SelfModelStore();
 const engine = new IndependentCognitiveEngine();
 const aisa = new AIsaModelClient();
+const sessions = new Map();
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const MAX_SESSIONS = 1000;
 const requestCounts = new Map();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_CHAT_REQUESTS_PER_WINDOW = 30;
-const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_BODY_BYTES = 7 * 1024 * 1024;
 
 function json(res, status, body) {
   const data = JSON.stringify(body);
@@ -37,16 +41,56 @@ function auth(req) {
   return !AUTH_TOKEN || req.headers.authorization === `Bearer ${AUTH_TOKEN}`;
 }
 
+function cleanupSessions() {
+  const now = Date.now();
+  for (const [token, session] of sessions) {
+    if (now - session.lastUsedAt > SESSION_TTL_MS) sessions.delete(token);
+  }
+  while (sessions.size >= MAX_SESSIONS) {
+    const oldest = sessions.keys().next().value;
+    if (!oldest) break;
+    sessions.delete(oldest);
+  }
+}
+
+function getSession(req) {
+  const authorization = String(req.headers.authorization || "");
+  if (!authorization.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7).trim();
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (Date.now() - session.lastUsedAt > SESSION_TTL_MS) {
+    sessions.delete(token);
+    return null;
+  }
+  session.lastUsedAt = Date.now();
+  return session;
+}
+
+function getAisaForRequest(req) {
+  return getSession(req)?.aisa || aisa;
+}
+
 function requireAgentAuth(req, res) {
-  if (!AUTH_TOKEN) {
-    json(res, 503, { error: "Agente indisponível: configure JARVIS_AUTH_TOKEN no ambiente do servidor antes de habilitar o chat." });
-    return false;
-  }
-  if (req.headers.authorization !== `Bearer ${AUTH_TOKEN}`) {
-    json(res, 401, { error: "Não autorizado. Configure o token de acesso do Jarvis na sessão do navegador." });
-    return false;
-  }
-  return true;
+  if (getSession(req)) return true;
+  if (AUTH_TOKEN && req.headers.authorization === `Bearer ${AUTH_TOKEN}`) return true;
+  json(res, 401, { error: "Sessão inválida ou expirada. Obtenha uma nova sessão do Jarvis." });
+  return false;
+}
+
+async function createSession(req, res) {
+  if (!rateLimit(req, res)) return;
+  cleanupSessions();
+  const token = randomBytes(32).toString("base64url");
+  const client = new AIsaModelClient({ apiKey: "", model: process.env.AISA_MODEL || "", baseUrl: process.env.AISA_BASE_URL, fallbacks: [] });
+  sessions.set(token, { aisa: client, createdAt: Date.now(), lastUsedAt: Date.now() });
+  return json(res, 201, {
+    ok: true,
+    token,
+    expiresInSeconds: Math.floor(SESSION_TTL_MS / 1000),
+    configured: client.isConfigured(),
+    requiresApiKey: !client.isConfigured()
+  });
 }
 
 async function body(req) {
@@ -54,7 +98,7 @@ async function body(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("Corpo da solicitação excede 1 MB."), { statusCode: 413 });
+    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("Corpo da solicitação excede o limite de 7 MB."), { statusCode: 413 });
     data += chunk;
   }
   try {
@@ -100,12 +144,15 @@ async function handleSetupAisa(req, res) {
   if (!selectedModel || selectedModel.length > 200) {
     return json(res, 400, { error: "Chave recebida com segurança, mas falta o ID do modelo. Informe um modelo habilitado na sua conta AIsa." });
   }
-  aisa.configure({ apiKey, model: selectedModel });
+  const client = getAisaForRequest(req);
+  client.configure({ apiKey, model: selectedModel });
   return json(res, 200, {
     ok: true,
-    configured: aisa.isConfigured(),
-    persistence: "memory_until_server_restart",
-    message: "AIsa configurada em memória. Para persistir após reinícios, configure AISA_API_KEY no gerenciador de segredos do servidor."
+    configured: client.isConfigured(),
+    persistence: getSession(req) ? "session_until_expiry_or_restart" : "memory_until_server_restart",
+    message: getSession(req)
+      ? "AIsa configurada apenas para esta sessão do navegador. A chave não foi salva no histórico."
+      : "AIsa configurada em memória. Para persistir após reinícios, configure AISA_API_KEY no gerenciador de segredos do servidor."
   });
 }
 
@@ -114,7 +161,7 @@ async function handleChat(req, res) {
   if (!rateLimit(req, res)) return;
   const input = await body(req);
   const messages = validateMessages(input.messages);
-  const result = await aisa.complete({ messages, tools: [] });
+  const result = await getAisaForRequest(req).complete({ messages, tools: [] });
   return json(res, 200, { ok: true, text: result.text, model: result.model, fallbackUsed: Boolean(result.fallbackUsed), usage: result.usage });
 }
 
@@ -123,6 +170,7 @@ async function handleAgent(req, res) {
   if (!rateLimit(req, res)) return;
   const input = await body(req);
   const messages = validateMessages(input.messages);
+  const sessionAisa = getAisaForRequest(req);
   const selectedSkills = loadSkills(input.skills);
   const skillPrompt = skillsSystemMessage(selectedSkills);
   const systemPrompt = [
@@ -141,7 +189,7 @@ async function handleAgent(req, res) {
   const MAX_TOOL_ROUNDS = 5;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    result = await aisa.complete({ messages: conversation, tools: JARVIS_TOOLS });
+    result = await sessionAisa.complete({ messages: conversation, tools: JARVIS_TOOLS });
     if (result.usage && Number.isFinite(Number(result.usage.total_tokens))) {
       totalTokens += Number(result.usage.total_tokens);
       anyUsage = true;
@@ -154,13 +202,13 @@ async function handleAgent(req, res) {
       toolCalls: result.toolCalls
     });
     for (const call of result.toolCalls.slice(0, 8)) {
-      const output = await executeJarvisTool(call.name, call.arguments, { aisa, listSkills });
+      const output = await executeJarvisTool(call.name, call.arguments, { aisa: sessionAisa, listSkills });
       conversation.push({ type: "tool_result", callId: call.id, content: output });
       executedTools.push({ name: call.name, ok: !output.includes('"error"') });
     }
     if (round === MAX_TOOL_ROUNDS - 1) {
       conversation.push({ role: "user", content: "Continue using the tool results already available. Do not start more tools; give an honest summary of what was actually verified." });
-      result = await aisa.complete({ messages: conversation, tools: [] });
+      result = await sessionAisa.complete({ messages: conversation, tools: [] });
       if (result.usage && Number.isFinite(Number(result.usage.total_tokens))) {
         totalTokens += Number(result.usage.total_tokens);
         anyUsage = true;
@@ -171,7 +219,7 @@ async function handleAgent(req, res) {
   return json(res, 200, {
     ok: true,
     text: result?.text || "Não consegui produzir uma resposta final após executar as ferramentas.",
-    model: result?.model || aisa.model,
+    model: result?.model || sessionAisa.model,
     fallbackUsed: Boolean(result?.fallbackUsed),
     usage: anyUsage ? { total_tokens: totalTokens } : (result?.usage || null),
     skillsUsed: selectedSkills.map((skill) => skill.id),
@@ -208,6 +256,7 @@ const server = http.createServer(async (req, res) => {
       }
       return json(res, 200, { ok: true, name: "Jarvis V1", status: "online" });
     }
+    if (req.method === "POST" && url.pathname === "/v1/session") return await createSession(req, res);
     if (req.method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true, service: "jarvis-server", aisaConfigured: aisa.isConfigured() });
     }

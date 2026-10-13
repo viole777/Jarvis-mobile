@@ -27,6 +27,22 @@ function toOpenAITool(tool) {
   };
 }
 
+function normalizeContent(content) {
+  if (typeof content === "string") return content.slice(0, 12000);
+  if (!Array.isArray(content)) return String(content ?? "").slice(0, 12000);
+  return content.slice(0, 6).flatMap((part) => {
+    if (!part || typeof part !== "object") return [];
+    if (part.type === "text" && typeof part.text === "string") return [{ type: "text", text: part.text.slice(0, 12000) }];
+    if (part.type === "image_url" && typeof part.image_url?.url === "string") {
+      const url = part.image_url.url;
+      if (/^data:image\/(?:jpeg|jpg|png|webp|gif);base64,/i.test(url) && url.length <= 5_500_000) {
+        return [{ type: "image_url", image_url: { url, ...(part.image_url.detail ? { detail: part.image_url.detail === "low" ? "low" : "auto" } : {}) } }];
+      }
+    }
+    return [];
+  });
+}
+
 function normalizeMessages(messages) {
   return (Array.isArray(messages) ? messages : []).slice(-40).map((message) => {
     if (message.type === "tool_result") {
@@ -37,7 +53,7 @@ function normalizeMessages(messages) {
       };
     }
     if (message.type === "assistant") {
-      const item = { role: "assistant", content: String(message.content || "") };
+      const item = { role: "assistant", content: normalizeContent(message.content || "") };
       if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
         item.tool_calls = message.toolCalls.map((call) => ({
           id: String(call.id || ""),
@@ -48,9 +64,9 @@ function normalizeMessages(messages) {
       return item;
     }
     if (message.role === "assistant" || message.role === "system") {
-      return { role: message.role, content: String(message.content || "").slice(0, 12000) };
+      return { role: message.role, content: normalizeContent(message.content || "") };
     }
-    return { role: "user", content: String(message.content || "").slice(0, 12000) };
+    return { role: "user", content: normalizeContent(message.content || "") };
   });
 }
 
