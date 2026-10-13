@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { IndependentCognitiveEngine, CognitiveStateStore, SelfModelStore } from "./brain/cognitive/index.js";
 import { deriveSelfModel } from "./brain/cognitive/self-model.js";
 import { AIsaModelClient } from "./brain/aisa-model.js";
+import { listSkills, loadSkills, skillsSystemMessage } from "./skills/registry.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -122,8 +123,13 @@ async function handleAgent(req, res) {
   const input = await body(req);
   const messages = validateMessages(input.messages);
   const tools = Array.isArray(input.tools) ? input.tools.slice(0, 32) : [];
-  const result = await aisa.complete({ messages, tools });
-  return json(res, 200, result);
+  const selectedSkills = loadSkills(input.skills);
+  const skillPrompt = skillsSystemMessage(selectedSkills);
+  const agentMessages = skillPrompt
+    ? [{ role: "system", content: skillPrompt }, ...messages].slice(-40)
+    : messages;
+  const result = await aisa.complete({ messages: agentMessages, tools });
+  return json(res, 200, { ...result, skillsUsed: selectedSkills.map((skill) => skill.id) });
 }
 
 async function observe(req, res) {
@@ -156,6 +162,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/health") {
       return json(res, 200, { ok: true, service: "jarvis-server", aisaConfigured: aisa.isConfigured() });
+    }
+    if (req.method === "GET" && url.pathname === "/v1/skills") {
+      if (!requireAgentAuth(req, res)) return;
+      return json(res, 200, { ok: true, skills: listSkills(), skillFormat: "server/skills/<skill-id>/SKILL.md" });
     }
     if (req.method === "POST" && url.pathname === "/v1/setup/aisa") return await handleSetupAisa(req, res);
     if (req.method === "POST" && url.pathname === "/v1/chat") return await handleChat(req, res);
