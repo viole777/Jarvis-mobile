@@ -61,3 +61,31 @@ test("allows runtime configuration without exposing credentials in status", () =
   assert.equal(client.isConfigured(), true);
   assert.equal(client.model, "runtime-model");
 });
+
+
+test("automatically retries a configured fallback after provider quota/rate-limit errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, auth: options.headers.Authorization, model: JSON.parse(options.body).model });
+    if (calls.length === 1) return new Response(JSON.stringify({ error: { message: "quota exceeded" } }), { status: 429 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Fallback funcionando", tool_calls: [] } }], usage: { total_tokens: 9 } }), { status: 200 });
+  };
+  try {
+    const client = new AIsaModelClient({
+      apiKey: "primary-test-key",
+      model: "primary-model",
+      baseUrl: "https://primary.example/v1",
+      fallbacks: [{ apiKey: "fallback-test-key", model: "fallback-model", baseUrl: "https://fallback.example/v1" }]
+    });
+    const result = await client.complete({ messages: [{ role: "user", content: "teste" }] });
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].model, "primary-model");
+    assert.equal(calls[1].model, "fallback-model");
+    assert.equal(calls[1].auth, "Bearer fallback-test-key");
+    assert.equal(result.fallbackUsed, true);
+    assert.equal(result.model, "fallback-model");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
