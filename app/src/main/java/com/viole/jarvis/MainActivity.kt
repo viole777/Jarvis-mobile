@@ -88,8 +88,10 @@ class MainActivity : ComponentActivity() {
         microphonePermission = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         tts = TextToSpeech(this) { result ->
             if (result == TextToSpeech.SUCCESS) {
-                ttsReady = tts?.setLanguage(Locale("pt", "BR")) != TextToSpeech.LANG_MISSING_DATA &&
-                    tts?.setLanguage(Locale("pt", "BR")) != TextToSpeech.LANG_NOT_SUPPORTED
+                val languageStatus = tts?.setLanguage(Locale("pt", "BR")) ?: TextToSpeech.ERROR
+                ttsReady = languageStatus != TextToSpeech.ERROR &&
+                    languageStatus != TextToSpeech.LANG_MISSING_DATA &&
+                    languageStatus != TextToSpeech.LANG_NOT_SUPPORTED
                 tts?.setSpeechRate(0.92f)
                 tts?.setPitch(0.82f)
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
