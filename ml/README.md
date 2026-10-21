@@ -117,6 +117,31 @@ Run lightweight tests:
 python -m unittest discover -s ml/tests -v
 ```
 
+
+## Hermes como professor da SLM (novo)
+
+O script `ml/generate_hermes_teacher.py` gera exemplos candidatos usando um endpoint Hermes que seja **compatível com OpenAI Chat Completions**. Ele usa somente variáveis de ambiente na máquina/sessão de treinamento; nenhuma credencial deve ser gravada no código, notebook, dataset ou aplicativo Android.
+
+Antes de executar, confirme que a API do Hermes está ativa e obtenha o endpoint/model ID corretos. A implantação Hermes atual do Jarvis foi relatada como temporariamente sem API ativa; portanto, o script não consegue ensinar nada até o endpoint real estar acessível. Não invente uma URL nem presuma que um endpoint web de conversa seja uma API compatível.
+
+Linux/Colab (defina os valores como secrets/variáveis da sessão, não no notebook versionado):
+
+```bash
+export HERMES_TEACHER_BASE_URL="https://SEU-ENDPOINT-COMPATIVEL/v1"
+export HERMES_TEACHER_MODEL="ID-REAL-DO-MODELO"
+# Solicite a credencial de forma segura ao administrador do endpoint.
+export HERMES_TEACHER_API_KEY="CREDENCIAL-DA-SESSAO"
+python ml/generate_hermes_teacher.py --count 100 --batch-size 10 --output ml/data/hermes_candidates.jsonl
+python ml/teacher_pipeline.py --input ml/data/hermes_candidates.jsonl --output-dir ml/data/hermes_prepared --seed 42
+python ml/validate_dataset.py ml/data/hermes_prepared/train.jsonl
+python ml/validate_dataset.py ml/data/hermes_prepared/validation.jsonl
+python ml/validate_dataset.py ml/data/hermes_prepared/test.jsonl
+python ml/train_lora.py --train ml/data/hermes_prepared/train.jsonl --validation ml/data/hermes_prepared/validation.jsonl --output /content/drive/MyDrive/Jarvis-training/jarvis-hermes-lora --epochs 2 --batch-size 1 --gradient-accumulation 8 --learning-rate 5e-5
+python ml/evaluate.py --dataset ml/data/hermes_prepared/test.jsonl --model /content/drive/MyDrive/Jarvis-training/jarvis-hermes-lora --predictions /content/drive/MyDrive/Jarvis-training/hermes-test-predictions.jsonl
+```
+
+O último comando treina um adaptador LoRA sobre `Qwen/Qwen3-0.6B`; não cria um modelo do zero. Treino exige GPU compatível e pode não caber em sessões gratuitas. Revise os exemplos do professor antes de treinar e nunca inclua conversas privadas, notificações ou segredos. O adaptador treinado ainda precisa de uma etapa separada de hospedagem/inferência e integração ao roteador do Jarvis; esta mudança não faz deploy automático do modelo.
+
 ## 6. Optional tokenizer for a future from-scratch model
 
 ```bash
