@@ -34,7 +34,8 @@ async function ensureSchema(db) {
   ]);
 }
 function authorized(request, env) {
-  const expected = clean(env.JARVIS_ACCESS_TOKEN, 300);
+  // Prefer a Cloudflare Secret binding; keep the legacy variable only for migration.
+  const expected = clean(env.JARVIS_ACCESS_TOKEN_SECRET || env.JARVIS_ACCESS_TOKEN, 300);
   if (!expected) return false;
   return request.headers.get("Authorization") === `Bearer ${expected}`;
 }
