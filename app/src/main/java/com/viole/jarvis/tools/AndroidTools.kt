@@ -108,7 +108,7 @@ object AndroidTools {
     fun back(): Result<Unit> {
         val service = JarvisAccessibilityService.instance
             ?: return Result.failure(IllegalStateException("Accessibility Service não está ativo."))
-        return if (service.performGlobalAction(JarvisAccessibilityService.GLOBAL_ACTION_BACK)) Result.success(Unit)
+        return if (service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)) Result.success(Unit)
         else Result.failure(IllegalStateException("Não foi possível voltar."))
     }
 
