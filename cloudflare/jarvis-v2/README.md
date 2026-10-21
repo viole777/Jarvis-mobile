@@ -33,7 +33,7 @@ The Worker intentionally rejects protected routes unless `JARVIS_ACCESS_TOKEN` m
 
 - `GET /health` should return JSON with `ok: true`.
 - `GET /v2/status` without an Authorization header should return HTTP `401`; this rejection was verified against the live deployment.
-- After converting `JARVIS_ACCESS_TOKEN` to a Secret, call `GET /v2/status` with the bearer token. It should return JSON with `ok: true` and include `modelRouting` and the simulated `affect` state.
+- After adding `JARVIS_ACCESS_TOKEN_SECRET` as a Secret and deploying the latest source, call `GET /v2/status` with the bearer token. It should return JSON with `ok: true` and include `modelRouting` and the simulated `affect` state.
 - Then send a JSON `POST /v2/chat` body such as `{"message":"Olá, Jarvis. Resuma suas capacidades."}` with `Content-Type: application/json` and the same Authorization header. A successful response should include `ok: true`, `response`, `model`, and `affect`. Authenticated inference has not yet been verified in this release.
 
 ## Known limits
