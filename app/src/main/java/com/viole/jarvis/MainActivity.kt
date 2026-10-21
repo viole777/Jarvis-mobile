@@ -57,6 +57,7 @@ import com.viole.jarvis.accessibility.JarvisAccessibilityService
 import com.viole.jarvis.agent.AgentLoop
 import com.viole.jarvis.agent.AgentRunResult
 import com.viole.jarvis.agent.HttpModelClient
+import com.viole.jarvis.agent.LocalCommandRouter
 import com.viole.jarvis.tools.AndroidToolRegistry
 import com.viole.jarvis.tools.AndroidTools
 import com.viole.jarvis.voice.VoiceTriggerService
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString(URL_KEY, backendUrl).putString(TOKEN_KEY, backendToken).apply()
                     configureAgent()
                 },
-                onRunAgent = { input, onResult -> lifecycleScope.launch { onResult(agent.run(input)) } },
+                onRunAgent = { input, onResult -> lifecycleScope.launch {\n                    val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)\n                    onResult(localResult ?: agent.run(input))\n                } },
                 onConfirm = { approved, onResult -> lifecycleScope.launch { onResult(agent.confirmPending(approved)) } }
             )
         }
