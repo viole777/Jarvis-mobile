@@ -3,6 +3,7 @@ package com.viole.jarvis.agent
 import com.viole.jarvis.tools.AndroidToolRegistry
 import com.viole.jarvis.tools.ToolExecutionResult
 import com.viole.jarvis.tools.ToolExecutor
+import com.viole.jarvis.tools.toSchema
 
 sealed interface AgentRunResult {
     data class Completed(val text: String) : AgentRunResult
