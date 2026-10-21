@@ -8,8 +8,8 @@ Health check: https://jarvis-v2-cloud.viole-jarvis.workers.dev/health
 - Cloudflare Workers AI inference via the native `AI` binding. The default model is `@cf/meta/llama-3.1-8b-instruct-fast`; optional routing to `@cf/zai-org/glm-4.7-flash` is disabled unless `JARVIS_COMPLEX_MODEL_ENABLED=true` is configured.
 - No external OpenAI or Anthropic API key is required for Cloudflare-hosted models. These are not the same as direct access to OpenAI/Claude services; Cloudflare AI usage limits or charges may apply.
 - Persistent memory and recent conversation history in D1 database `jarvis-v2-memory`.
-- Scheduled review every 15 minutes. It updates an attention state if a check-in is overdue; it does not send notifications.
-- Protected API routes: `/v2/chat`, `/v2/memory`, `/v2/checkin`, `/v2/status`.
+- Scheduled review every 15 minutes. It updates the attention state and creates a persistent `Revisar check-in` task when the check-in threshold is overdue. This is an in-app task queue, not a push notification.
+- Protected API routes: `/v2/chat`, `/v2/memory`, `/v2/checkin`, `/v2/status`, `/v2/tasks` (GET/POST), `/v2/tasks/:id` (PATCH), and `/v2/hermes/execute` (optional bridge).
 - Public `GET /health` reports basic service status only.
 
 ## Deployment identifiers
@@ -36,11 +36,11 @@ The Worker intentionally rejects protected routes unless `JARVIS_ACCESS_TOKEN` m
 - After adding `JARVIS_ACCESS_TOKEN_SECRET` as a Secret and deploying the latest source, call `GET /v2/status` with the bearer token. It should return JSON with `ok: true` and include `modelRouting` and the simulated `affect` state.
 - Then send a JSON `POST /v2/chat` body such as `{"message":"Olá, Jarvis. Resuma suas capacidades."}` with `Content-Type: application/json` and the same Authorization header. A successful response should include `ok: true`, `response`, `model`, and `affect`. Authenticated inference has not yet been verified in this release.
 
-## Known limits
+## New API behavior\n\n- `GET /v2/tasks` lists persistent tasks. `POST /v2/tasks` accepts `{\"title\":\"...\",\"detail\":\"...\",\"dueAt\":\"ISO timestamp\"}`. `PATCH /v2/tasks/:id` accepts `status` equal to `pending`, `completed`, or `cancelled`.\n- The scheduled agent creates at most one pending `Revisar check-in` reminder task. It is visible through the authenticated tasks API; browser/mobile push delivery is not implemented.\n- `POST /v2/hermes/execute` accepts `{\"message\":\"...\"}` and forwards it to the configured HTTPS `HERMES_AGENT_URL`. The expected upstream response may contain `response`, `output`, `text`, or `message`.\n- GitHub Actions now runs `node --check` for the Cloudflare Worker source on relevant pushes and pull requests.\n\n## Known limits
 
 - Workers AI has plan/usage quotas; requests can fail if a model or quota is unavailable.
-- The scheduled review records an attention state only. It does not contact the user or run an uninterrupted thought loop.
+- The scheduled review runs every 15 minutes and can queue a persistent reminder task, but it does not send push notifications or run an uninterrupted model thought loop.
 - This cloud runtime is not yet integrated into the existing Android app UI or Android accessibility-based cross-app control.
-- The Hermes Agent runtime has not been connected; a similarly named sales-assistant plugin is not Hermes Agent.
-- The current cloud model router is a basic heuristic, not token-budget-aware model switching. It does not know each provider's remaining token allowance.
+- Hermes bridge endpoint: `POST /v2/hermes/execute` forwards a message to `HERMES_AGENT_URL` over HTTPS and optionally uses `HERMES_AGENT_TOKEN`. The bridge is not live until an actual Hermes runtime endpoint is deployed and these bindings are configured; it returns `503` rather than pretending Hermes ran.
+- Model routing now estimates input/output tokens from text length and tracks estimated daily token use for the complex model in D1. `JARVIS_COMPLEX_DAILY_TOKEN_BUDGET` defaults to 60,000 estimated tokens/day; requests that exceed the remaining estimate fall back to the fast model. This is an estimate, not provider-reported usage or the provider's actual remaining quota.
 - Memory is stored as user-provided notes and conversation history; this is not model-weight training or autonomous self-learning.
