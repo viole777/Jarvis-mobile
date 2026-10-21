@@ -55,3 +55,31 @@ The Worker intentionally rejects protected routes unless `JARVIS_ACCESS_TOKEN` m
 - Hermes bridge endpoint: `POST /v2/hermes/execute` forwards an OpenAI-compatible chat request to `HERMES_AGENT_URL` over HTTPS and uses `HERMES_AGENT_TOKEN`. The bridge remains unavailable until an actual Hermes runtime is deployed and both bindings are configured. The model proxy also needs the `HERMES_MODEL_PROXY_SECRET` Secret binding; do not expose that route without authentication.
 - Model routing now reserves an estimated token allowance atomically in D1 before calling the complex model, reconciles the reservation after inference, and releases it on fallback/failure. `JARVIS_COMPLEX_DAILY_TOKEN_BUDGET` defaults to 60,000 estimated tokens/day; the limit is clamped to 1,000–2,000,000. Requests that cannot reserve their full prompt + output allowance fall back to the fast model. `/v2/status` exposes `modelBudget` with the daily limit and estimated remaining tokens. This may reduce surprise usage but is not a hard provider billing limit: token counts are character-based estimates, not provider-reported usage.
 - Memory is stored as user-provided notes and conversation history; this is not model-weight training or autonomous self-learning.
+
+## GitHub integration
+
+The Worker now contains authenticated GitHub API routes. The Worker does **not** receive credentials from the ChatGPT GitHub connection; it needs its own server-side credential.
+
+### Required Cloudflare secret
+
+In Cloudflare Dashboard → Workers & Pages → `jarvis-v2-cloud` → Settings → Variables and Secrets, create a **Secret** named `GITHUB_TOKEN`. Do not place a token in this repository, the browser UI, chat messages, or logs.
+
+Use a fine-grained token scoped to only the repositories Jarvis should manage, with:
+- Metadata: read
+- Contents: read and write
+- Pull requests: read and write
+- Repository creation: write, if available for the account
+
+Add Actions/Workflows permissions only if Jarvis is meant to manage workflow files. Repositories outside the token's selected scope will remain inaccessible.
+
+### Routes (all require the existing Jarvis bearer authentication)
+
+- `GET /v2/github/repos` — list repositories accessible to the token.
+- `GET /v2/github/repo?repo=OWNER/REPO` — repository metadata.
+- `GET /v2/github/contents?repo=OWNER/REPO&path=PATH&ref=BRANCH` — read a file.
+- `POST /v2/github/repos` — create a repository; JSON body must include `name` and `confirmed: true`. Private is the default.
+- `PUT /v2/github/file` — create/update a file; JSON body requires `repo`, `path`, `content`, and `confirmed: true`. Optional `branch` and `message`.
+- `POST /v2/github/pulls` — open a pull request; JSON body requires `repo`, `head`, `base`, `title`, and `confirmed: true`.
+
+Natural-language chat currently handles repository listing and repository creation requests. The broader write/read operations are available as API routes, but a complete autonomous coding loop (plan → inspect files → generate patch → tests → review → commit/PR) still requires additional tool orchestration and verification. No delete-repository route is exposed.
+
