@@ -113,6 +113,30 @@ async function state(db, key, fallback = "") {
 async function setState(db, key, value) {
   await db.prepare("INSERT INTO jarvis_state(key,value,updated_at) VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").bind(key, String(value)).run();
 }
+
+async function githubRequest(env, path, method = "GET", body = undefined) {
+  const token = clean(env.GITHUB_TOKEN, 500);
+  if (!token) return { ok: false, status: 503, data: { error: "Integração GitHub não configurada: falta o segredo GITHUB_TOKEN na Cloudflare." } };
+  const response = await fetch("https://api.github.com" + path, {
+    method,
+    headers: {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "Jarvis-V2"
+    },
+    ...(body === undefined ? {} : { headers: {
+      "Accept": "application/vnd.github+json",
+      "Authorization": "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "Jarvis-V2",
+      "Content-Type": "application/json"
+    }, body: JSON.stringify(body) })
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data };
+}
+
 async function handle(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   const url = new URL(request.url);
@@ -236,6 +260,62 @@ async function handle(request, env) {
     } catch (error) {
       return ok({ content: [{ type: "text", text: "Tool failed: " + clean(error?.message || "unknown error", 240) }], isError: true });
     }
+  }
+
+
+  // GitHub integration: all routes require Jarvis authentication and a server-side GITHUB_TOKEN.
+  if (url.pathname.startsWith("/v2/github/")) {
+    if (!env.GITHUB_TOKEN) return reply({ ok: false, error: "Integração GitHub ainda não configurada. Adicione GITHUB_TOKEN como Secret na Cloudflare." }, 503);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const method = request.method;
+    if (parts.length === 3 && parts[2] === "repos" && method === "GET") {
+      const page = Math.max(1, Math.min(10, Number(url.searchParams.get("page") || 1)));
+      const result = await githubRequest(env, "/user/repos?sort=updated&per_page=100&page=" + page);
+      return reply({ ok: result.ok, status: result.status, repositories: result.ok ? result.data.map(r => ({ full_name:r.full_name, name:r.name, private:r.private, description:r.description, default_branch:r.default_branch, html_url:r.html_url, updated_at:r.updated_at })) : undefined, error: result.ok ? undefined : result.data.message });
+    }
+    if (parts.length === 4 && parts[2] === "repo" && parts[3] && method === "GET") {
+      const fullName = decodeURIComponent(parts[3]);
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) return reply({ error: "Nome do repositório inválido." }, 400);
+      const result = await githubRequest(env, "/repos/" + fullName);
+      return reply({ ok: result.ok, status: result.status, repository: result.ok ? result.data : undefined, error: result.ok ? undefined : result.data.message });
+    }
+    if (parts.length === 4 && parts[2] === "contents" && method === "GET") {
+      const fullName = url.searchParams.get("repo") || "";
+      const path = url.searchParams.get("path") || "";
+      const ref = url.searchParams.get("ref") || "";
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName) || !path || path.length > 500) return reply({ error: "Informe repo=owner/name e path." }, 400);
+      const apiPath = "/repos/" + fullName + "/contents/" + path.split("/").map(encodeURIComponent).join("/") + (ref ? "?ref=" + encodeURIComponent(ref) : "");
+      const result = await githubRequest(env, apiPath);
+      return reply({ ok: result.ok, status: result.status, content: result.ok ? result.data : undefined, error: result.ok ? undefined : result.data.message });
+    }
+    if (parts.length === 3 && parts[2] === "repos" && method === "POST") {
+      const payload = await request.json().catch(() => ({}));
+      if (payload.confirmed !== true) return reply({ error: "Confirmação necessária: envie confirmed=true para criar o repositório." }, 428);
+      const name = clean(payload.name, 100);
+      if (!/^[A-Za-z0-9_.-]+$/.test(name)) return reply({ error: "Nome de repositório inválido." }, 400);
+      const result = await githubRequest(env, "/user/repos", "POST", { name, description: clean(payload.description, 350), private: payload.private !== false, auto_init: true });
+      return reply({ ok: result.ok, status: result.status, repository: result.ok ? { full_name:result.data.full_name, html_url:result.data.html_url, private:result.data.private, default_branch:result.data.default_branch } : undefined, error: result.ok ? undefined : result.data.message }, result.ok ? 201 : result.status);
+    }
+    if (parts.length === 3 && parts[2] === "file" && method === "PUT") {
+      const payload = await request.json().catch(() => ({}));
+      if (payload.confirmed !== true) return reply({ error: "Confirmação necessária: envie confirmed=true para gravar arquivo no GitHub." }, 428);
+      const repo = clean(payload.repo, 200), path = clean(payload.path, 500), content = typeof payload.content === "string" ? payload.content : "";
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !path || path.startsWith("/") || path.split("/").includes("..") || content.length > 500000) return reply({ error: "repo/path/conteúdo inválido." }, 400);
+      const encoded = btoa(unescape(encodeURIComponent(content)));
+      const current = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"));
+      const body = { message: clean(payload.message || "Update via Jarvis", 200), content: encoded, branch: clean(payload.branch, 200) || undefined, ...(current.ok && current.data.sha ? { sha: current.data.sha } : {}) };
+      const result = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"), "PUT", body);
+      return reply({ ok: result.ok, status: result.status, commit: result.ok ? { sha:result.data.commit?.sha, html_url:result.data.commit?.html_url } : undefined, error: result.ok ? undefined : result.data.message }, result.ok ? 200 : result.status);
+    }
+    if (parts.length === 3 && parts[2] === "pulls" && method === "POST") {
+      const payload = await request.json().catch(() => ({}));
+      if (payload.confirmed !== true) return reply({ error: "Confirmação necessária para abrir pull request." }, 428);
+      const repo = clean(payload.repo, 200);
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return reply({ error: "repo deve ser owner/name." }, 400);
+      const result = await githubRequest(env, "/repos/" + repo + "/pulls", "POST", { title: clean(payload.title, 250), head: clean(payload.head, 200), base: clean(payload.base, 200), body: clean(payload.body, 5000), draft: payload.draft === true });
+      return reply({ ok: result.ok, status: result.status, pull_request: result.ok ? { number:result.data.number, html_url:result.data.html_url, state:result.data.state } : undefined, error: result.ok ? undefined : result.data.message }, result.ok ? 201 : result.status);
+    }
+    return reply({ error: "Rota GitHub não suportada." }, 404);
   }
 
   if (url.pathname === "/v2/status" && request.method === "GET") {
