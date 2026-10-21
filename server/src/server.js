@@ -8,6 +8,7 @@ import { deriveSelfModel } from "./brain/cognitive/self-model.js";
 import { AIsaModelClient } from "./brain/aisa-model.js";
 import { listSkills, loadSkills, skillsSystemMessage } from "./skills/registry.js";
 import { JARVIS_TOOLS, executeJarvisTool } from "./agent/tool-registry.js";
+import { LearningExperienceStore } from "./learning/experience-store.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -15,6 +16,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../publ
 const AUTH_TOKEN = process.env.JARVIS_AUTH_TOKEN || "";
 const store = new CognitiveStateStore();
 const self = new SelfModelStore();
+const learning = new LearningExperienceStore();
+const LEARNING_ADMIN_TOKEN = process.env.JARVIS_LEARNING_ADMIN_TOKEN || "";
 const engine = new IndependentCognitiveEngine();
 const aisa = new AIsaModelClient();
 const sessions = new Map();
@@ -251,6 +254,64 @@ async function handleAgent(req, res) {
   });
 }
 
+function requireLearningAdmin(req, res) {
+  if (!LEARNING_ADMIN_TOKEN) {
+    json(res, 503, { error: "Revisão de aprendizagem desativada: configure JARVIS_LEARNING_ADMIN_TOKEN no gerenciador de segredos." });
+    return false;
+  }
+  if (req.headers.authorization !== "Bearer " + LEARNING_ADMIN_TOKEN) {
+    json(res, 401, { error: "Autorização administrativa de aprendizagem inválida." });
+    return false;
+  }
+  return true;
+}
+
+async function handleLearningRequest(req, res, url) {
+  if (!requireAgentAuth(req, res)) return;
+  if (req.method === "GET" && url.pathname === "/v1/learning/status") {
+    return json(res, 200, {
+      ok: true,
+      storage: learning.mode,
+      persistent: learning.mode === "postgres",
+      humanReviewRequired: true,
+      automaticTraining: false,
+      adminReviewConfigured: Boolean(LEARNING_ADMIN_TOKEN)
+    });
+  }
+  if (req.method === "GET" && url.pathname === "/v1/learning/experiences") {
+    const rawLimit = Number(url.searchParams.get("limit") || 50);
+    const limit = Number.isInteger(rawLimit) ? Math.max(1, Math.min(100, rawLimit)) : 50;
+    const verifiedOnly = url.searchParams.get("verified") === "only";
+    const experiences = await learning.list({ limit, verifiedOnly });
+    return json(res, 200, { ok: true, count: experiences.length, verifiedOnly, experiences });
+  }
+  if (req.method === "POST" && url.pathname === "/v1/learning/experiences") {
+    if (!rateLimit(req, res)) return;
+    const input = await body(req);
+    const experience = await learning.create(input);
+    return json(res, 201, {
+      ok: true,
+      experience,
+      storage: learning.mode,
+      persistent: learning.mode === "postgres",
+      message: "Experiência registrada como não verificada. Ela não será usada automaticamente para treinar o modelo."
+    });
+  }
+}
+
+async function handleLearningReview(req, res) {
+  if (!requireLearningAdmin(req, res)) return;
+  if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
+  const input = await body(req);
+  const verified = input.verified === undefined ? true : input.verified;
+  const experience = await learning.verify(input.id, verified);
+  return json(res, 200, {
+    ok: true,
+    experience,
+    message: verified ? "Experiência marcada como revisada; exportação e treinamento ainda exigem etapas explícitas." : "Experiência retirada do conjunto revisado."
+  });
+}
+
 async function observe(req, res) {
   if (!auth(req)) return json(res, 401, { error: "Unauthorized" });
   const input = await body(req);
@@ -290,6 +351,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/v1/setup/aisa") return await handleSetupAisa(req, res);
     if (req.method === "POST" && url.pathname === "/v1/chat") return await handleChat(req, res);
     if (req.method === "POST" && url.pathname === "/v1/agent") return await handleAgent(req, res);
+    if (url.pathname === "/v1/learning/status" && req.method === "GET") return await handleLearningRequest(req, res, url);
+    if (url.pathname === "/v1/learning/experiences" && (req.method === "GET" || req.method === "POST")) return await handleLearningRequest(req, res, url);
+    if (url.pathname === "/v1/learning/experiences/verify" && req.method === "POST") return await handleLearningReview(req, res);
     if (req.method === "GET" && url.pathname === "/v1/cognitive/state") {
       if (!auth(req)) return json(res, 401, { error: "Unauthorized" });
       const id = String(url.searchParams.get("subjectId") || "default").slice(0, 120);
