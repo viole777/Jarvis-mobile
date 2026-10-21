@@ -6,7 +6,7 @@
   "observability": { "enabled": true },
   "ai": { "binding": "AI" },
   "d1_databases": [
-    { "binding": "DB", "database_name": "jarvis-v2-memory", "database_id": "REPLACE_AFTER_CREATE" }
+    { "binding": "DB", "database_name": "jarvis-v2-memory", "database_id": "d60d636f-07b4-480f-bbff-bc02bd228125" }
   ],
   "triggers": { "crons": ["*/15 * * * *"] },
   "vars": { "ATTENTION_AFTER_HOURS": "24" }
