@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
 
 const MAX_TASK_LENGTH = 4_000;
 const MAX_OUTCOME_LENGTH = 4_000;
@@ -43,18 +42,34 @@ export function normalizeExperienceInput(input = {}) {
 
 export class LearningExperienceStore {
   constructor({ pool, databaseUrl = process.env.DATABASE_URL, maxMemoryRecords = MAX_MEMORY_RECORDS } = {}) {
-    this.pool = pool === undefined && databaseUrl ? new Pool({ connectionString: databaseUrl, ssl: process.env.PGSSL === "disable" ? false : true, max: 5, connectionTimeoutMillis: 5000 }) : (pool || null);
+    this.databaseUrl = typeof databaseUrl === "string" ? databaseUrl.trim() : "";
+    this.pool = pool || null;
     this.maxMemoryRecords = maxMemoryRecords;
     this.records = [];
     this.schemaPromise = null;
   }
 
   get mode() {
-    return this.pool ? "postgres" : "memory";
+    return this.pool || this.databaseUrl ? "postgres" : "memory";
   }
 
   async ensureSchema() {
-    if (!this.pool) return;
+    if (!this.pool && !this.databaseUrl) return;
+    if (!this.pool) {
+      try {
+        const pg = await import("pg");
+        const PoolClass = pg.Pool || pg.default?.Pool;
+        if (!PoolClass) throw new Error("PostgreSQL Pool export was not found.");
+        this.pool = new PoolClass({
+          connectionString: this.databaseUrl,
+          ssl: process.env.PGSSL === "disable" ? false : true,
+          max: 5,
+          connectionTimeoutMillis: 5000
+        });
+      } catch (error) {
+        throw Object.assign(new Error("PostgreSQL storage is configured but the pg driver could not be loaded."), { statusCode: 503, cause: error });
+      }
+    }
     if (!this.schemaPromise) {
       this.schemaPromise = this.pool.query(`
         CREATE TABLE IF NOT EXISTS jarvis_learning_experiences (
@@ -84,7 +99,7 @@ export class LearningExperienceStore {
   async create(input) {
     const normalized = normalizeExperienceInput(input);
     const record = { id: randomUUID(), createdAt: new Date().toISOString(), ...normalized, verified: false };
-    if (!this.pool) {
+    if (!this.pool && !this.databaseUrl) {
       this.records.unshift(record);
       this.records.length = Math.min(this.records.length, this.maxMemoryRecords);
       return { ...record, tags: [...record.tags] };
@@ -99,7 +114,7 @@ export class LearningExperienceStore {
 
   async list({ limit = 50, verifiedOnly = false } = {}) {
     const boundedLimit = Math.max(1, Math.min(100, Number.isInteger(Number(limit)) ? Number(limit) : 50));
-    if (!this.pool) {
+    if (!this.pool && !this.databaseUrl) {
       return this.records.filter((record) => !verifiedOnly || record.verified).slice(0, boundedLimit).map((record) => ({ ...record, tags: [...record.tags] }));
     }
     await this.ensureSchema();
@@ -119,7 +134,7 @@ export class LearningExperienceStore {
       throw Object.assign(new Error("A valid experience UUID is required."), { statusCode: 400 });
     }
     if (typeof verified !== "boolean") throw Object.assign(new Error("verified must be a boolean."), { statusCode: 400 });
-    if (!this.pool) {
+    if (!this.pool && !this.databaseUrl) {
       const record = this.records.find((item) => item.id === id);
       if (!record) throw Object.assign(new Error("Learning experience not found."), { statusCode: 404 });
       record.verified = verified;
