@@ -145,7 +145,7 @@ async function jarvisGitHubChatAction(message, env) {
   const repoMatch = text.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
   const repo = repoMatch?.[1] || "";
   const confirmed = /\b(confirmo|confirmado|pode executar|autorizo)\b/i.test(text);
-  if (/(listar|liste|mostr(e|ar)|quais|meus|todos).{0,35}(reposit[oó]rios|repos\b)|reposit[oó]rios.{0,25}(listar|mostrar|meus|quais)/i.test(text)) {
+  if (/(listar|liste|mostr(e|ar)|quais|meus|todos|consegue|consegui|pode|acessa|ver|visualiza).{0,45}(reposit[oó]rio|repos\b|github)|(?:reposit[oó]rio|repos\b|github).{0,35}(listar|mostrar|meus|meu|minha|quais|ver|acessar|consegue|pode)|(?:ver|acessar|consultar|abrir).{0,35}(meu|minha|o|a)?\s*(reposit[oó]rio|repo\b|github)/i.test(text)) {
     const r = await githubRequest(env, "/user/repos?sort=updated&per_page=50");
     if (!r.ok) return { response: "Não consegui listar repositórios: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_list_failed" };
     const repos = (r.data || []).map(x => "- " + x.full_name + (x.private ? " (privado)" : " (público)") + (x.description ? " — " + x.description : "") + "\n" + x.html_url);
