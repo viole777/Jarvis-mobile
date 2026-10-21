@@ -151,6 +151,64 @@ async function handle(request, env) {
   if (!env.DB || !env.AI) return reply({ error: "Bindings DB/AI não configurados." }, 503);
   await ensureSchema(env.DB);
 
+  if (url.pathname === "/mcp" && request.method === "POST") {
+    const rpc = await request.json().catch(() => null);
+    if (!rpc || rpc.jsonrpc !== "2.0" || typeof rpc.method !== "string") return reply({ jsonrpc: "2.0", id: rpc?.id ?? null, error: { code: -32600, message: "Invalid JSON-RPC request" } }, 400);
+    if (rpc.method === "notifications/initialized" || rpc.method === "notifications/cancelled") return new Response(null, { status: 202, headers: cors });
+    const ok = result => reply({ jsonrpc: "2.0", id: rpc.id ?? null, result });
+    const err = (code, message) => reply({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code, message } });
+    if (rpc.method === "initialize") return ok({ protocolVersion: "2025-03-26", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "jarvis-v2-cloud", version: "2.0.0" }, instructions: "Authenticated Jarvis memory and task tools. Does not operate other apps or external services." });
+    if (rpc.method === "ping") return ok({});
+    if (rpc.method === "tools/list") return ok({ tools: [
+      { name: "jarvis_memory_search", description: "Search persistent Jarvis memories.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+      { name: "jarvis_memory_add", description: "Save a note or preference to persistent memory.", inputSchema: { type: "object", properties: { content: { type: "string" }, kind: { type: "string" } }, required: ["content"] } },
+      { name: "jarvis_tasks_list", description: "List persistent tasks.", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["pending", "completed", "cancelled"] } } } },
+      { name: "jarvis_task_create", description: "Create a persistent task.", inputSchema: { type: "object", properties: { title: { type: "string" }, detail: { type: "string" } }, required: ["title"] } },
+      { name: "jarvis_task_complete", description: "Complete a task by ID.", inputSchema: { type: "object", properties: { id: { type: "integer" } }, required: ["id"] } },
+      { name: "jarvis_checkin", description: "Record a check-in.", inputSchema: { type: "object", properties: { note: { type: "string" } } } }
+    ] });
+    if (rpc.method !== "tools/call") return err(-32601, "Method not found");
+    const name = clean(rpc.params?.name, 100);
+    const args = rpc.params?.arguments && typeof rpc.params.arguments === "object" ? rpc.params.arguments : {};
+    let output;
+    try {
+      if (name === "jarvis_memory_search") {
+        const query = clean(args.query, 200);
+        const rows = await env.DB.prepare("SELECT id,kind,content,created_at FROM jarvis_memories WHERE content LIKE ? ORDER BY id DESC LIMIT 20").bind("%" + query + "%").all();
+        output = { memories: rows.results || [] };
+      } else if (name === "jarvis_memory_add") {
+        const content = clean(args.content, 4000), kind = clean(args.kind, 40) || "note";
+        if (!content) return err(-32602, "content is required");
+        const exists = await env.DB.prepare("SELECT id FROM jarvis_memories WHERE content=? LIMIT 1").bind(content).first();
+        if (exists) output = { saved: false, duplicate: true, id: exists.id };
+        else { const saved = await env.DB.prepare("INSERT INTO jarvis_memories(kind,content) VALUES(?,?)").bind(kind, content).run(); output = { saved: true, id: saved.meta?.last_row_id, kind }; }
+      } else if (name === "jarvis_tasks_list") {
+        const status = ["pending", "completed", "cancelled"].includes(args.status) ? args.status : null;
+        const rows = status ? await env.DB.prepare("SELECT id,title,detail,status,due_at,created_at FROM jarvis_tasks WHERE status=? ORDER BY id DESC LIMIT 100").bind(status).all() : await env.DB.prepare("SELECT id,title,detail,status,due_at,created_at FROM jarvis_tasks ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END,id DESC LIMIT 100").all();
+        output = { tasks: rows.results || [] };
+      } else if (name === "jarvis_task_create") {
+        const title = clean(args.title, 160), detail = clean(args.detail, 2000);
+        if (!title) return err(-32602, "title is required");
+        const created = await env.DB.prepare("INSERT INTO jarvis_tasks(title,detail) VALUES(?,?)").bind(title, detail).run();
+        output = { created: true, id: created.meta?.last_row_id, title, status: "pending" };
+      } else if (name === "jarvis_task_complete") {
+        const id = Number(args.id);
+        if (!Number.isSafeInteger(id) || id < 1) return err(-32602, "id must be a positive integer");
+        const changed = await env.DB.prepare("UPDATE jarvis_tasks SET status='completed',completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(id).run();
+        if (!changed.meta?.changes) return err(-32602, "task not found");
+        output = { completed: true, id };
+      } else if (name === "jarvis_checkin") {
+        const note = clean(args.note, 1000), now = new Date().toISOString();
+        await setState(env.DB, "last_checkin", now); await setState(env.DB, "attention_state", "normal");
+        await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES('checkin',?)").bind(note || "MCP check-in recebido.").run();
+        output = { recorded: true, lastCheckin: now };
+      } else return err(-32602, "Unknown tool: " + name);
+      return ok({ content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output, isError: false });
+    } catch (error) {
+      return ok({ content: [{ type: "text", text: "Tool failed: " + clean(error?.message || "unknown error", 240) }], isError: true });
+    }
+  }
+
   if (url.pathname === "/v2/status" && request.method === "GET") {
     const lastCheckin = await state(env.DB, "last_checkin", "");
     const attention = await state(env.DB, "attention_state", "normal");
