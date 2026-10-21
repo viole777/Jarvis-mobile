@@ -1,4 +1,15 @@
-# Jarvis V2 Cloud (Cloudflare)
+# Jarvis V2 Cloud
+
+## Jarvis web console (current)
+
+- The `/` and `/app` pages serve a responsive command-center UI with an animated central core, authenticated chat, browser speech recognition/synthesis, persistent-memory controls, check-ins, task management, and objective-to-task planning.
+- Voice is browser-dependent and uses installed Web Speech API voices; it is not a real-time streaming voice model and does not reproduce an actor's exact voice. Recognition may be unavailable in some browsers or require microphone permission.
+- `POST /v2/plan` asks the configured Workers AI model to split a broad goal into 3–8 ordered tasks and persists them as pending tasks. It does not autonomously execute external actions.
+- `/v2/chat` automatically saves explicit remember requests and low-risk preference/project statements as memories, with a conservative filter that skips messages containing credential and selected sensitive-data terms. Review memories in the UI; exact duplicates are not stored again.
+- The 15-minute scheduled review creates a follow-up task when a check-in is overdue and creates one review task for each overdue pending task. This is proactive task tracking, not push notification delivery or unrestricted autonomous computer control.
+- Cross-application Android control still requires a native AccessibilityService and explicit Android permissions. MCP, email/calendar, and smart-home connectors are not active until a real connector/runtime is configured and authorized.
+
+ (Cloudflare)
 
 Public deployment: https://jarvis-v2-cloud.viole-jarvis.workers.dev  
 Health check: https://jarvis-v2-cloud.viole-jarvis.workers.dev/health
