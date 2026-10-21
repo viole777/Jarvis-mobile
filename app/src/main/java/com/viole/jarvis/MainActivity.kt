@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity() {
                 voiceListening = voiceListening,
                 microphonePermission = microphonePermission,
                 onOpenAccessibility = { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                onOpenNotificationAccess = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                 onRequestMicrophone = {
                     if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), AUDIO_PERMISSION_REQUEST)
@@ -213,6 +214,7 @@ private fun JarvisScreen(
     voiceListening: Boolean,
     microphonePermission: Boolean,
     onOpenAccessibility: () -> Unit,
+    onOpenNotificationAccess: () -> Unit,
     onRequestMicrophone: () -> Unit,
     onVoiceToggle: (Boolean) -> Unit,
     onSetVoiceCommandHandler: (((String) -> Unit)?) -> Unit,
@@ -297,6 +299,11 @@ private fun JarvisScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
                     ) { Text(if (JarvisAccessibilityService.instance != null) "Acessibilidade ativa" else "Ativar controle") }
                 }
+                Button(
+                    onClick = onOpenNotificationAccess,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
+                ) { Text("Ativar leitura de notificações") }
 
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("COMANDO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
