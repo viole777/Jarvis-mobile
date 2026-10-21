@@ -5,7 +5,7 @@ const MODEL_COMPLEX = "@cf/zai-org/glm-4.7-flash";
 const MODEL = MODEL_FAST;
 const MAX_TEXT = 12000;
 function chooseModel(message, env) {
-  const complex = message.length > 900 || /\b(c[oó]digo|programa|arquitet|depurar|debug|an[aá]lise|planej|passo a passo|reposit[oó]rio|integra[cç][aã]o|vulnerabil|refator|migrar)\b/i.test(message);
+  const complex = message.length > 900 || /(c[oó]digo|programa|arquitet\w*|depur\w*|debug|an[aá]lise|planej\w*|passo a passo|reposit[oó]rio|integra[cç][aã]o|vulnerabil\w*|refator\w*|migr\w*|seguran[cç]a|autentica[cç][aã]o|banco de dados|deploy|implanta[cç][aã]o)/i.test(message);
   return complex && String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true" ? MODEL_COMPLEX : MODEL_FAST;
 }
 function simulateAffect(message, attention) {
@@ -61,7 +61,13 @@ async function handle(request, env) {
     const attention = await state(env.DB, "attention_state", "normal");
     const pulse = await env.DB.prepare("SELECT kind,detail,created_at FROM jarvis_pulses ORDER BY id DESC LIMIT 1").first();
     const memories = await env.DB.prepare("SELECT COUNT(*) AS total FROM jarvis_memories").first();
-    const affect = JSON.parse(await state(env.DB, "affect_state", "{\"curiosity\":0.35,\"caution\":0.25,\"concern\":0.15,\"satisfaction\":0.2,\"label\":\"atenção\",\"kind\":\"simulated_operational_state\"}"));
+    let affect;
+    try {
+      affect = JSON.parse(await state(env.DB, "affect_state", "{\\\"curiosity\\\":0.35,\\\"caution\\\":0.25,\\\"concern\\\":0.15,\\\"satisfaction\\\":0.2,\\\"label\\\":\\\"atenção\\\",\\\"kind\\\":\\\"simulated_operational_state\\\"}"));
+      if (!affect || typeof affect !== "object" || Array.isArray(affect)) throw new Error("Estado afetivo inválido");
+    } catch {
+      affect = { curiosity: 0.35, caution: 0.25, concern: 0.15, satisfaction: 0.2, label: "atenção", kind: "simulated_operational_state" };
+    }
     return reply({ ok: true, model: MODEL, modelRouting: String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true" ? "fast + opt-in complex model" : "fast model only (complex routing disabled)", affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
