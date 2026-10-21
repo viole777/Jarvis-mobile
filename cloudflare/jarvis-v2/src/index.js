@@ -100,12 +100,12 @@ async function handle(request, env) {
     return reply({ ok: true, id: result.meta?.last_row_id, title, detail, status: "pending", dueAt }, 201);
   }
 
-  const taskMatch = url.pathname.match(/^\\/v2\\/tasks\\/(\\d+)$/);
-  if (taskMatch && request.method === "PATCH") {
+  const taskIdPart = url.pathname.startsWith("/v2/tasks/") ? url.pathname.slice("/v2/tasks/".length) : "";
+  if (/^\\d+$/.test(taskIdPart) && request.method === "PATCH") {
     const payload = await request.json().catch(() => ({}));
     const status = payload.status;
     if (!["pending", "completed", "cancelled"].includes(status)) return reply({ error: "status deve ser pending, completed ou cancelled." }, 400);
-    const id = Number(taskMatch[1]);
+    const id = Number(taskIdPart);
     const result = await env.DB.prepare("UPDATE jarvis_tasks SET status=?,completed_at=CASE WHEN ?='completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END WHERE id=?").bind(status, status, id).run();
     if (!result.meta?.changes) return reply({ error: "Tarefa não encontrada." }, 404);
     return reply({ ok: true, id, status });
@@ -113,7 +113,7 @@ async function handle(request, env) {
 
   if (url.pathname === "/v2/hermes/execute" && request.method === "POST") {
     const endpoint = clean(env.HERMES_AGENT_URL, 500);
-    if (!endpoint || !/^https:\\/\\//i.test(endpoint)) {
+    if (!endpoint || (() => { try { return new URL(endpoint).protocol !== "https:"; } catch { return true; } })()) {
       return reply({ error: "Hermes ainda não está conectado.", detail: "Configure HERMES_AGENT_URL com o endpoint HTTPS do runtime Hermes; este bridge não simula uma execução." }, 503);
     }
     const payload = await request.json().catch(() => ({}));
