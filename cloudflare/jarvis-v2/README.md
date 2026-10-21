@@ -25,9 +25,9 @@ The Worker intentionally rejects protected routes unless `JARVIS_ACCESS_TOKEN` m
 
 1. Open **Workers & Pages** and select `jarvis-v2-cloud`.
 2. Open **Settings → Variables and Secrets** (the exact label can vary).
-3. Replace the existing plain-text variable with a **Secret** named `JARVIS_ACCESS_TOKEN`; use a long, unique random value you do not reuse elsewhere.
+3. Add a **Secret** named `JARVIS_ACCESS_TOKEN_SECRET` with a long, unique random value. The current source prefers this secret binding; it temporarily supports the legacy `JARVIS_ACCESS_TOKEN` variable during migration. Use the same token in the web UI.
 4. Save the secret and wait for the Worker version to update.
-5. Send that value as the header `Authorization: Bearer YOUR_TOKEN` when calling protected routes. Never put it in GitHub or share it publicly.
+5. Deploy the latest `cloudflare/jarvis-v2/src/index.js` source, then send the secret value as `Authorization: Bearer YOUR_TOKEN` when calling protected routes. Never put it in GitHub or share it publicly.
 
 ## Smoke tests
 
