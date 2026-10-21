@@ -43,7 +43,7 @@ export function normalizeExperienceInput(input = {}) {
 
 export class LearningExperienceStore {
   constructor({ pool, databaseUrl = process.env.DATABASE_URL, maxMemoryRecords = MAX_MEMORY_RECORDS } = {}) {
-    this.pool = pool === undefined && databaseUrl ? new Pool({ connectionString: databaseUrl, ssl: process.env.PGSSL === "disable" ? false : { rejectUnauthorized: false }, max: 5, connectionTimeoutMillis: 5000 }) : (pool || null);
+    this.pool = pool === undefined && databaseUrl ? new Pool({ connectionString: databaseUrl, ssl: process.env.PGSSL === "disable" ? false : true, max: 5, connectionTimeoutMillis: 5000 }) : (pool || null);
     this.maxMemoryRecords = maxMemoryRecords;
     this.records = [];
     this.schemaPromise = null;
@@ -115,7 +115,7 @@ export class LearningExperienceStore {
   }
 
   async verify(id, verified = true) {
-    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)) {
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
       throw Object.assign(new Error("A valid experience UUID is required."), { statusCode: 400 });
     }
     if (typeof verified !== "boolean") throw Object.assign(new Error("verified must be a boolean."), { statusCode: 400 });
