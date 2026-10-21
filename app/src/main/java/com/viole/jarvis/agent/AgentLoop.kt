@@ -4,6 +4,9 @@ import com.viole.jarvis.tools.AndroidToolRegistry
 import com.viole.jarvis.tools.ToolExecutionResult
 import com.viole.jarvis.tools.ToolExecutor
 import com.viole.jarvis.tools.toSchema
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 
 sealed interface AgentRunResult {
     data class Completed(val text: String) : AgentRunResult
@@ -18,10 +21,67 @@ sealed interface AgentRunResult {
 
 class AgentLoop(
     private val model: ModelClient,
-    private val registry: AndroidToolRegistry
+    private val registry: AndroidToolRegistry,
+    context: Context
 ) {
     private val executor = ToolExecutor(registry)
-    private val messages = mutableListOf<AgentMessage>()
+    private val prefs = context.applicationContext.getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE)
+    private val messages = mutableListOf<AgentMessage>().apply { addAll(loadMessages()) }
+
+    private fun saveMessages() {
+        val json = JSONArray()
+        messages.takeLast(80).forEach { message ->
+            val item = JSONObject()
+            when (message) {
+                is AgentMessage.User -> item.put("type", "user").put("content", message.content)
+                is AgentMessage.Assistant -> {
+                    item.put("type", "assistant").put("content", message.content)
+                    item.put("calls", JSONArray().apply {
+                        message.toolCalls.forEach { call ->
+                            put(JSONObject().put("id", call.id).put("name", call.name)
+                                .put("arguments", JSONObject(call.arguments)))
+                        }
+                    })
+                }
+                is AgentMessage.ToolResult -> item.put("type", "tool")
+                    .put("name", message.toolName).put("id", message.callId).put("content", message.content)
+            }
+            json.put(item)
+        }
+        prefs.edit().putString("conversation_v1", json.toString()).apply()
+    }
+
+    private fun loadMessages(): List<AgentMessage> = runCatching {
+        val json = JSONArray(prefs.getString("conversation_v1", "[]"))
+        (0 until json.length()).mapNotNull { index ->
+            val item = json.getJSONObject(index)
+            when (item.optString("type")) {
+                "user" -> AgentMessage.User(item.optString("content"))
+                "assistant" -> {
+                    val calls = item.optJSONArray("calls") ?: JSONArray()
+                    val parsedCalls = (0 until calls.length()).map { i ->
+                        val call = calls.getJSONObject(i)
+                        ToolCall(call.optString("id"), call.optString("name"), call.optJSONObject("arguments").toAnyMap())
+                    }
+                    AgentMessage.Assistant(item.optString("content"), parsedCalls)
+                }
+                "tool" -> AgentMessage.ToolResult(item.optString("name"), item.optString("id"), item.optString("content"))
+                else -> null
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private fun JSONObject?.toAnyMap(): Map<String, Any?> {
+        if (this == null) return emptyMap()
+        return keys().asSequence().associateWith { key ->
+            when (val value = get(key)) {
+                JSONObject.NULL -> null
+                is JSONObject -> value.toAnyMap()
+                is JSONArray -> (0 until value.length()).map { i -> value.get(i) }
+                else -> value
+            }
+        }
+    }
     private var pending: ToolCall? = null
     private var roundsRemaining = 0
 
@@ -35,6 +95,7 @@ class AgentLoop(
         }
 
         messages += AgentMessage.User(userInput)
+        saveMessages()
         roundsRemaining = maxToolRounds
         return continueLoop(maxRetriesPerTool)
     }
@@ -54,6 +115,7 @@ class AgentLoop(
                 call.id,
                 "Ação recusada pelo usuário."
             )
+            saveMessages()
             return continueLoop(maxRetriesPerTool)
         }
 
@@ -63,6 +125,7 @@ class AgentLoop(
             call.id,
             result.toOutput()
         )
+        saveMessages()
 
         return continueLoop(maxRetriesPerTool)
     }
@@ -85,6 +148,7 @@ class AgentLoop(
             }
 
             messages += AgentMessage.Assistant(response.text, response.toolCalls)
+            saveMessages()
 
             if (response.toolCalls.isEmpty()) {
                 return AgentRunResult.Completed(
@@ -101,6 +165,7 @@ class AgentLoop(
                             call.id,
                             result.output
                         )
+                        saveMessages()
                     }
 
                     is ToolExecutionResult.Error -> {
@@ -109,6 +174,7 @@ class AgentLoop(
                             call.id,
                             "Erro: " + result.message
                         )
+                        saveMessages()
 
                         if (retries < maxRetriesPerTool) {
                             retries++
