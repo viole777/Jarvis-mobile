@@ -63,6 +63,9 @@ object AndroidTools {
     }
 
     fun click(text: String? = null, contentDescription: String? = null, resourceId: String? = null): Result<Unit> {
+        if (text.isNullOrBlank() && contentDescription.isNullOrBlank() && resourceId.isNullOrBlank()) {
+            return Result.failure(IllegalArgumentException("Informe text, contentDescription ou resourceId para identificar o elemento."))
+        }
         val root = JarvisAccessibilityService.instance?.activeRoot()
             ?: return Result.failure(IllegalStateException("Accessibility Service não está ativo."))
         val node = findNode(root, text, contentDescription, resourceId)
@@ -75,8 +78,11 @@ object AndroidTools {
     fun typeText(text: String, targetText: String? = null, targetResourceId: String? = null): Result<Unit> {
         val root = JarvisAccessibilityService.instance?.activeRoot()
             ?: return Result.failure(IllegalStateException("Accessibility Service não está ativo."))
-        val node = findNode(root, targetText, null, targetResourceId)
-            ?: findFocusedEditable(root)
+        val node = if (!targetText.isNullOrBlank() || !targetResourceId.isNullOrBlank()) {
+            findNode(root, targetText, null, targetResourceId)
+        } else {
+            null
+        } ?: findFocusedEditable(root)
             ?: return Result.failure(IllegalArgumentException("Campo de texto não encontrado."))
         if (!node.isEditable) return Result.failure(IllegalArgumentException("O elemento encontrado não é editável."))
         val args = android.os.Bundle().apply {
