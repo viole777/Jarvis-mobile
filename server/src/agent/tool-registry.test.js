@@ -6,6 +6,8 @@ test("exposes bounded tools with gated PR-only GitHub writes", () => {
   assert.deepEqual(JARVIS_TOOLS.map((tool) => tool.name), [
     "get_jarvis_status",
     "list_skills",
+    "list_verified_learning_experiences",
+    "record_learning_experience",
     "read_own_repo_file",
     "list_own_repo_directory",
     "propose_github_file_change"
@@ -135,4 +137,38 @@ test("GitHub write creates a draft PR and never merges or deploys", async () => 
     if (previousToken === undefined) delete process.env.GITHUB_TOKEN;
     else process.env.GITHUB_TOKEN = previousToken;
   }
+});
+
+
+test("agent can list only verified lessons", async () => {
+  let options;
+  const learning = {
+    async list(value) {
+      options = value;
+      return [{ id: "reviewed-1", verified: true, task: "safe task" }];
+    }
+  };
+  const result = JSON.parse(await executeJarvisTool("list_verified_learning_experiences", {}, {
+    aisa: {}, listSkills: () => [], learning
+  }));
+  assert.deepEqual(options, { limit: 30, verifiedOnly: true });
+  assert.equal(result.verifiedOnly, true);
+  assert.equal(result.experiences[0].verified, true);
+});
+
+test("agent records lessons only as unverified and never triggers training", async () => {
+  let input;
+  const learning = {
+    async create(value) {
+      input = value;
+      return { id: "pending-1", ...value, verified: false };
+    }
+  };
+  const result = JSON.parse(await executeJarvisTool("record_learning_experience", {
+    source: "hermes", task: "Select a tool", outcome: "The selected tool returned the expected result", success: true
+  }, { aisa: {}, listSkills: () => [], learning }));
+  assert.equal(input.source, "hermes");
+  assert.deepEqual(input.tags, []);
+  assert.equal(result.verified, false);
+  assert.match(result.message, /Human review is required/);
 });
