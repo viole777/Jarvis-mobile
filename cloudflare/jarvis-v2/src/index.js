@@ -10,7 +10,7 @@ function isComplexRequest(message) {
 function utcDay() { return new Date().toISOString().slice(0, 10); }
 function estimateTokens(value) { return Math.max(1, Math.ceil(String(value || "").length / 4)); }
 async function chooseModel(message, env, db, promptTokens) {
-  const enabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true";
+  const enabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
   if (!enabled || !isComplexRequest(message)) return { model: MODEL_FAST, reason: "fast_default", budgetRemaining: null };
   const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
   const key = "complex_tokens_" + utcDay();
@@ -81,7 +81,7 @@ async function handle(request, env) {
     } catch {
       affect = { curiosity: 0.35, caution: 0.25, concern: 0.15, satisfaction: 0.2, label: "atenção", kind: "simulated_operational_state" };
     }
-    return reply({ ok: true, model: MODEL, modelRouting: String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true" ? "fast + opt-in complex model" : "fast model only (complex routing disabled)", affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
+    return reply({ ok: true, model: MODEL, modelRouting: String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false" ? "fast + complex model with estimated daily budget" : "fast model only (complex routing disabled)", affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
   if (url.pathname === "/v2/tasks" && request.method === "GET") {
