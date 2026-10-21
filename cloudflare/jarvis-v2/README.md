@@ -5,7 +5,7 @@ Health check: https://jarvis-v2-cloud.viole-jarvis.workers.dev/health
 
 ## Runtime
 
-- Cloudflare Workers AI inference via the native `AI` binding. The default model is `@cf/meta/llama-3.1-8b-instruct-fast`; optional routing to `@cf/zai-org/glm-4.7-flash` is disabled unless `JARVIS_COMPLEX_MODEL_ENABLED=true` is configured.
+- Cloudflare Workers AI inference via the native `AI` binding. The default model is `@cf/meta/llama-3.1-8b-instruct-fast`; routing to `@cf/zai-org/glm-4.7-flash` is enabled by default for complex requests and can be disabled with `JARVIS_COMPLEX_MODEL_ENABLED=false`.
 - No external OpenAI or Anthropic API key is required for Cloudflare-hosted models. These are not the same as direct access to OpenAI/Claude services; Cloudflare AI usage limits or charges may apply.
 - Persistent memory and recent conversation history in D1 database `jarvis-v2-memory`.
 - Scheduled review every 15 minutes. It updates the attention state and creates a persistent `Revisar check-in` task when the check-in threshold is overdue. This is an in-app task queue, not a push notification.
@@ -42,5 +42,5 @@ The Worker intentionally rejects protected routes unless `JARVIS_ACCESS_TOKEN` m
 - The scheduled review runs every 15 minutes and can queue a persistent reminder task, but it does not send push notifications or run an uninterrupted model thought loop.
 - This cloud runtime is not yet integrated into the existing Android app UI or Android accessibility-based cross-app control.
 - Hermes bridge endpoint: `POST /v2/hermes/execute` forwards a message to `HERMES_AGENT_URL` over HTTPS and optionally uses `HERMES_AGENT_TOKEN`. The bridge is not live until an actual Hermes runtime endpoint is deployed and these bindings are configured; it returns `503` rather than pretending Hermes ran.
-- Model routing now estimates input/output tokens from text length and tracks estimated daily token use for the complex model in D1. `JARVIS_COMPLEX_DAILY_TOKEN_BUDGET` defaults to 60,000 estimated tokens/day; requests that exceed the remaining estimate fall back to the fast model. This is an estimate, not provider-reported usage or the provider's actual remaining quota.
+- Model routing now estimates input/output tokens from text length and tracks estimated daily token use for the complex model in D1. `JARVIS_COMPLEX_DAILY_TOKEN_BUDGET` defaults to 60,000 estimated tokens/day; requests that exceed the remaining estimate fall back to the fast model. This default may increase Cloudflare Workers AI usage and possible charges. This is an estimate, not provider-reported usage or the provider's actual remaining quota.
 - Memory is stored as user-provided notes and conversation history; this is not model-weight training or autonomous self-learning.
