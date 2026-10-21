@@ -4,9 +4,21 @@ const MODEL_FAST = "@cf/meta/llama-3.1-8b-instruct-fast";
 const MODEL_COMPLEX = "@cf/zai-org/glm-4.7-flash";
 const MODEL = MODEL_FAST;
 const MAX_TEXT = 12000;
-function chooseModel(message, env) {
-  const complex = message.length > 900 || /(c[oó]digo|programa|arquitet\w*|depur\w*|debug|an[aá]lise|planej\w*|passo a passo|reposit[oó]rio|integra[cç][aã]o|vulnerabil\w*|refator\w*|migr\w*|seguran[cç]a|autentica[cç][aã]o|banco de dados|deploy|implanta[cç][aã]o)/i.test(message);
-  return complex && String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true" ? MODEL_COMPLEX : MODEL_FAST;
+function isComplexRequest(message) {
+  return message.length > 900 || /(c[oó]digo|programa|arquitet\\w*|depur\\w*|debug|an[aá]lise|planej\\w*|passo a passo|reposit[oó]rio|integra[cç][aã]o|vulnerabil\\w*|refator\\w*|migr\\w*|seguran[cç]a|autentica[cç][aã]o|banco de dados|deploy|implanta[cç][aã]o)/i.test(message);
+}
+function utcDay() { return new Date().toISOString().slice(0, 10); }
+function estimateTokens(value) { return Math.max(1, Math.ceil(String(value || "").length / 4)); }
+async function chooseModel(message, env, db, promptTokens) {
+  const enabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true";
+  if (!enabled || !isComplexRequest(message)) return { model: MODEL_FAST, reason: "fast_default", budgetRemaining: null };
+  const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
+  const key = "complex_tokens_" + utcDay();
+  const used = Math.max(0, Number(await state(db, key, "0")) || 0);
+  if (used + promptTokens + 700 > dailyBudget) {
+    return { model: MODEL_FAST, reason: "complex_daily_budget_exhausted", budgetRemaining: Math.max(0, dailyBudget - used) };
+  }
+  return { model: MODEL_COMPLEX, reason: "complex_budget_available", budgetRemaining: Math.max(0, dailyBudget - used) };
 }
 function simulateAffect(message, attention) {
   const consequential = /\b(apagar|excluir|enviar|publicar|comprar|pagar|transferir|permiss[aã]o|senha|token)\b/i.test(message);
