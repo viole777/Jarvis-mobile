@@ -162,6 +162,68 @@ async function handle(request, env) {
     return reply({ ok: true, id: result.meta?.last_row_id, kind, content }, 201);
   }
 
+  if (url.pathname === "/v1/agent" && request.method === "POST") {
+    const payload = await request.json().catch(() => ({}));
+    const inputMessages = Array.isArray(payload.messages) ? payload.messages.slice(-40) : [];
+    const suppliedTools = Array.isArray(payload.tools) ? payload.tools.slice(0, 40) : [];
+    if (!inputMessages.length) return reply({ error: "Envie de 1 a 40 mensagens." }, 400);
+    const allowedTools = suppliedTools.filter(t => t && typeof t.name === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(t.name)).map(t => ({
+      name: t.name, description: clean(t.description, 600),
+      parameters: (Array.isArray(t.parameters) ? t.parameters : []).slice(0, 30).map(p => ({
+        name: clean(p.name, 80),
+        type: ["string","number","integer","boolean","object","array"].includes(String(p.type || "string").toLowerCase()) ? String(p.type || "string").toLowerCase() : "string",
+        description: clean(p.description, 250), required: Boolean(p.required),
+        enumValues: Array.isArray(p.enumValues) ? p.enumValues.slice(0, 30).map(v => clean(String(v), 100)) : []
+      }))
+    }));
+    const latestUser = [...inputMessages].reverse().find(m => m && m.type === "user");
+    const taskText = clean(latestUser?.content || "", 4000);
+    const schema = allowedTools.map(t => JSON.stringify(t)).join("\n");
+    const systemPrompt = [
+      "Você é o motor de planejamento do Jarvis para automação Android. Responda em português brasileiro.",
+      "Retorne somente JSON válido, sem Markdown, com text, toolCalls e isFinal.",
+      "Para executar ferramenta, use toolCalls com até 3 itens {id,name,arguments} e isFinal:false. Use somente nomes permitidos.",
+      "Sem ferramenta, retorne toolCalls:[] e isFinal:true. Nunca diga que executou uma ação; o app Android executa e aplica confirmações.",
+      "Peça esclarecimento se houver ambiguidade. A Safety Engine do app é a autoridade final para ações sensíveis.",
+      "Ferramentas permitidas: " + (schema || "nenhuma")
+    ].join("\n");
+    const modelMessages = [{ role: "system", content: systemPrompt }, ...inputMessages.map(m => {
+      if (m?.type === "tool_result") return { role: "user", content: "[Resultado de " + clean(m.toolName, 80) + "]: " + clean(m.content, 5000) };
+      if (m?.type === "assistant") return { role: "assistant", content: clean(m.content, 5000) || "(planejamento anterior)" };
+      return { role: "user", content: clean(m?.content, 5000) };
+    })];
+    const estimatedInputTokens = estimateTokens(JSON.stringify(modelMessages));
+    const routing = await chooseModel(taskText, env, env.DB, estimatedInputTokens);
+    let usedModel = routing.model;
+    let answer;
+    try { answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 }); }
+    catch (error) {
+      if (usedModel === MODEL_FAST) throw error;
+      usedModel = MODEL_FAST;
+      answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 });
+    }
+    const raw = clean(answer?.response || answer?.choices?.[0]?.message?.content, 8000);
+    if (!raw) return reply({ error: "O modelo não retornou um plano utilizável." }, 502);
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch {
+      const candidate = raw.match(/\{[\s\S]*\}/);
+      if (candidate) { try { parsed = JSON.parse(candidate[0]); } catch {} }
+    }
+    const allowedNames = new Set(allowedTools.map(t => t.name));
+    const toolCalls = (Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : []).slice(0, 3)
+      .filter(c => c && allowedNames.has(c.name) && c.arguments && typeof c.arguments === "object" && !Array.isArray(c.arguments))
+      .map((c, i) => ({ id: clean(c.id, 100) || "jarvis_call_" + (i + 1), name: c.name, arguments: c.arguments }));
+    const text = clean(parsed?.text || (toolCalls.length ? "Vou propor a próxima etapa." : raw), 6000);
+    const isFinal = toolCalls.length === 0 || parsed?.isFinal === true;
+    if (usedModel === MODEL_COMPLEX) {
+      const key = "complex_tokens_" + utcDay();
+      const current = Math.max(0, Number(await state(env.DB, key, "0")) || 0);
+      await setState(env.DB, key, String(current + estimatedInputTokens + estimateTokens(raw)));
+    }
+    await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("android_agent_plan", JSON.stringify({ model: usedModel, toolCalls: toolCalls.length, task: taskText.slice(0, 240), at: new Date().toISOString() })).run();
+    return reply({ text, toolCalls, isFinal, model: usedModel, modelRouting: { reason: routing.reason, estimatedInputTokens } });
+  }
+
   if (url.pathname === "/v2/chat" && request.method === "POST") {
     const payload = await request.json().catch(() => ({}));
     const message = clean(payload.message);
