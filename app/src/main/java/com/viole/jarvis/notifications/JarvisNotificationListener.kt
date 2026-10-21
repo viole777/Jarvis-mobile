@@ -7,14 +7,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Reads notification previews only after the user explicitly enables
+ * Stores notification previews locally after the user explicitly enables
  * Jarvis in Android's Notification access settings.
  */
 class JarvisNotificationListener : NotificationListenerService() {
-    override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        val item = sbn ?: return
-        if (item.packageName == packageName) return
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        runCatching { activeNotifications?.forEach(::capture) }
+    }
 
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        capture(sbn)
+    }
+
+    private fun capture(item: StatusBarNotification?) {
+        item ?: return
+        if (item.packageName == packageName) return
         val extras = item.notification.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
@@ -36,9 +44,10 @@ class JarvisNotificationListener : NotificationListenerService() {
         next.put(entry)
         for (i in 0 until minOf(existing.length(), MAX_ITEMS - 1)) {
             val old = existing.optJSONObject(i) ?: continue
-            if (old.optLong("postedAt") != item.postTime ||
-                old.optString("packageName") != item.packageName ||
-                old.optString("title") != title) next.put(old)
+            val duplicate = old.optLong("postedAt") == item.postTime &&
+                old.optString("packageName") == item.packageName &&
+                old.optString("title") == title
+            if (!duplicate) next.put(old)
         }
         prefs.edit().putString(KEY_ITEMS, next.toString()).apply()
     }
