@@ -4,6 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// CI: compile Java and Kotlin to the same JVM target.
 android {
     namespace = "com.viole.jarvis"
     compileSdk = 36
