@@ -49,6 +49,9 @@ class AgentLoop(
             json.put(item)
         }
         prefs?.edit()?.putString("conversation_v1", json.toString())?.apply()
+        if (messages.size > 80) {
+            messages.subList(0, messages.size - 80).clear()
+        }
     }
 
     private fun loadMessages(): List<AgentMessage> = runCatching {
@@ -77,7 +80,14 @@ class AgentLoop(
             when (val value = get(key)) {
                 JSONObject.NULL -> null
                 is JSONObject -> value.toAnyMap()
-                is JSONArray -> (0 until value.length()).map { i -> value.get(i) }
+                is JSONArray -> (0 until value.length()).map { i ->
+                    when (val item = value.get(i)) {
+                        JSONObject.NULL -> null
+                        is JSONObject -> item.toAnyMap()
+                        is JSONArray -> (0 until item.length()).map { j -> item.get(j) }
+                        else -> item
+                    }
+                }
                 else -> value
             }
         }
@@ -206,6 +216,7 @@ class AgentLoop(
 
     fun clearHistory() {
         messages.clear()
+        prefs?.edit()?.remove("conversation_v1")?.apply()
         pending = null
         roundsRemaining = 0
     }
