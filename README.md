@@ -67,3 +67,17 @@ Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para in
 O backend agora possui um cliente AIsa compatível com Chat Completions, a rota autenticada `POST /v1/chat` para a interface web e `POST /v1/agent` para o cliente Android/tool calling. Configure os segredos no host de deploy seguindo [docs/AISA-V1-SETUP.md](docs/AISA-V1-SETUP.md). A interface web intercepta prompts como `Configurar AIsa: SUA_CHAVE` e envia a chave ao endpoint autenticado de configuração sem incluí-la no histórico do modelo. Essa configuração por prompt é temporária (memória do processo); para persistência após reinícios, configure `AISA_API_KEY` no gerenciador de segredos do host.
 
 A integração do modelo não significa que Skills externas do marketplace ou MCP já estejam conectadas. Consulte o guia para limites atuais e passos de segurança.
+
+## Jarvis Android (native)
+
+The Android client includes a Compose command center with a central animated core, configurable Cloudflare Worker endpoint, local bearer-token storage, voice activation ("Jarvis" or two claps), Android Accessibility-based screen inspection, app launch, click, text entry, scrolling and Back actions. Sensitive actions can be paused by the Safety Engine for explicit approval.
+
+- Enable the Android Accessibility service in Settings before asking Jarvis to operate other apps.
+- Enable microphone permission and tap **Ativar voz contínua** to use wake-word mode. A foreground notification remains visible while listening; stop voice mode in the app when you do not want it listening.
+- Spoken responses use the device's installed Portuguese text-to-speech voice. This is not an exact reproduction of the Iron Man film voice, and wake-word recognition depends on the device speech recognizer.
+- Android automation is limited by each app's accessibility tree, OS restrictions and the permissions granted by the device owner. It cannot guarantee every action works in every app.
+
+### Build Android APK
+
+Every push that changes the Android app triggers the **Android debug APK** GitHub Actions workflow. Download the artifact named `jarvis-android-debug` from the run's **Artifacts** section. Debug APKs are development builds, not Play Store-signed releases.
+
