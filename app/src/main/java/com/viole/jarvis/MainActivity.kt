@@ -8,6 +8,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.RepeatMode
@@ -77,10 +80,27 @@ class MainActivity : ComponentActivity() {
     private var voiceCommandHandler: ((String) -> Unit)? = null
     private var voiceListening by mutableStateOf(false)
     private var microphonePermission by mutableStateOf(false)
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         microphonePermission = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        tts = TextToSpeech(this) { result ->
+            if (result == TextToSpeech.SUCCESS) {
+                ttsReady = tts?.setLanguage(Locale("pt", "BR")) != TextToSpeech.LANG_MISSING_DATA &&
+                    tts?.setLanguage(Locale("pt", "BR")) != TextToSpeech.LANG_NOT_SUPPORTED
+                tts?.setSpeechRate(0.92f)
+                tts?.setPitch(0.82f)
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) = Unit
+                    override fun onError(utteranceId: String?) = Unit
+                    override fun onDone(utteranceId: String?) {
+                        runOnUiThread { if (voiceListening && microphonePermission) startVoiceTriggerService() }
+                    }
+                })
+            }
+        }
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         var backendUrl = prefs.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL
@@ -119,6 +139,7 @@ class MainActivity : ComponentActivity() {
                     else stopVoiceTriggerService()
                 },
                 onSetVoiceCommandHandler = { handler -> voiceCommandHandler = handler },
+                onSpeakResponse = { text -> speakResponse(text) },
                 onSaveBackend = { url, token ->
                     backendUrl = url.trim()
                     backendToken = token
@@ -151,6 +172,13 @@ class MainActivity : ComponentActivity() {
     private fun stopVoiceTriggerService() {
         stopService(Intent(this, VoiceTriggerService::class.java))
         voiceListening = false
+        tts?.stop()
+    }
+
+    private fun speakResponse(text: String) {
+        if (!voiceListening || !ttsReady || text.isBlank()) return
+        stopService(Intent(this, VoiceTriggerService::class.java))
+        tts?.speak(text.take(3000), TextToSpeech.QUEUE_FLUSH, null, "jarvis-response-" + System.currentTimeMillis())
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
@@ -165,6 +193,9 @@ class MainActivity : ComponentActivity() {
         voiceReceiver?.let { try { unregisterReceiver(it) } catch (_: IllegalArgumentException) {} }
         voiceReceiver = null
         voiceCommandHandler = null
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
         super.onDestroy()
     }
 }
@@ -179,6 +210,7 @@ private fun JarvisScreen(
     onRequestMicrophone: () -> Unit,
     onVoiceToggle: (Boolean) -> Unit,
     onSetVoiceCommandHandler: (((String) -> Unit)?) -> Unit,
+    onSpeakResponse: (String) -> Unit,
     onSaveBackend: (String, String) -> Unit,
     onRunAgent: (String, (AgentRunResult) -> Unit) -> Unit,
     onConfirm: (Boolean, (AgentRunResult) -> Unit) -> Unit
@@ -195,12 +227,13 @@ private fun JarvisScreen(
     fun handleResult(result: AgentRunResult) {
         busy = false
         when (result) {
-            is AgentRunResult.Completed -> { response = result.text; status = "Execução finalizada."; confirmation = null }
-            is AgentRunResult.Failed -> { response = result.message; status = "Execução interrompida."; confirmation = null }
+            is AgentRunResult.Completed -> { response = result.text; status = "Execução finalizada."; confirmation = null; onSpeakResponse(result.text) }
+            is AgentRunResult.Failed -> { response = result.message; status = "Execução interrompida."; confirmation = null; onSpeakResponse(result.message) }
             is AgentRunResult.NeedsConfirmation -> {
                 response = "Aguardando sua autorização."
                 status = "A Safety Engine pausou a ação."
                 confirmation = result
+                onSpeakResponse("Preciso da sua autorização para continuar. " + result.reason)
             }
         }
     }
