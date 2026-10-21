@@ -1,0 +1,13 @@
+{
+  "$schema": "https://developers.cloudflare.com/workers/wrangler/config-schema.json",
+  "name": "jarvis-v2-cloud",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-21",
+  "observability": { "enabled": true },
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "jarvis-v2-memory", "database_id": "REPLACE_AFTER_CREATE" }
+  ],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "vars": { "ATTENTION_AFTER_HOURS": "24" }
+}
