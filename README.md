@@ -24,7 +24,7 @@ Antes de uma ferramenta ser executada, o cliente aplica uma política local.
 
 A Safety Engine fica no Android, perto da execução real da ação. O backend não pode substituir essa confirmação.
 
-## Arquitetura
+## Backend em nuvem sem chave de provedor no app\n\nO app Android agora usa por padrão o Worker Cloudflare do projeto (`https://jarvis-v2-cloud.viole-jarvis.workers.dev`), que executa modelos pelo binding nativo Workers AI; não é necessário colocar uma chave de OpenAI ou Anthropic no APK. O campo de autenticação ainda exige o token de acesso do Worker. O endpoint `/v1/agent` recebe o catálogo de ferramentas do Android e devolve um plano JSON; a execução continua no aparelho, com a Safety Engine e confirmação local.\n\nPara controlar outros apps, instale o APK, abra o Jarvis e ative manualmente o serviço de Acessibilidade nas configurações do Android. O Android pode limitar o serviço de microfone em segundo plano; o reconhecimento de voz requer permissões e pode variar conforme fabricante/versão.\n\n## Arquitetura
 
 Android UI
   -> AgentLoop
@@ -37,7 +37,7 @@ Android UI
   -> Tool result
   -> AgentLoop
 
-A chave do provedor de IA permanece exclusivamente no backend.
+O app não contém uma chave de provedor de IA; as chamadas ao modelo passam pelo Worker autenticado.
 
 ## Segurança
 
