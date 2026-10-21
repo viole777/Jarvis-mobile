@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
         voiceReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val command = intent?.getStringExtra(VoiceTriggerService.EXTRA_COMMAND).orEmpty()
-                if (command.isNotBlank()) voiceCommandHandler?.invoke(command)
+                if (command.isNotBlank()) {\n                    if (voiceListening) stopService(Intent(this@MainActivity, VoiceTriggerService::class.java))\n                    voiceCommandHandler?.invoke(command)\n                }
             }
         }
         registerVoiceReceiver()
