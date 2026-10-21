@@ -269,10 +269,12 @@ function requireLearningAdmin(req, res) {
 async function handleLearningRequest(req, res, url) {
   if (!requireAgentAuth(req, res)) return;
   if (req.method === "GET" && url.pathname === "/v1/learning/status") {
+    if (learning.mode === "postgres") await learning.ensureSchema();
     return json(res, 200, {
       ok: true,
       storage: learning.mode,
       persistent: learning.mode === "postgres",
+      storageWarning: learning.mode === "memory" ? "Records are lost when this server process restarts; configure DATABASE_URL for persistence." : null,
       humanReviewRequired: true,
       automaticTraining: false,
       adminReviewConfigured: Boolean(LEARNING_ADMIN_TOKEN)
@@ -300,6 +302,7 @@ async function handleLearningRequest(req, res, url) {
 }
 
 async function handleLearningReview(req, res) {
+  if (!rateLimit(req, res)) return;
   if (!requireLearningAdmin(req, res)) return;
   if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
   const input = await body(req);
