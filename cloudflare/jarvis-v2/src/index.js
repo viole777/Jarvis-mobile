@@ -159,6 +159,29 @@ async function jarvisGitHubChatAction(message, env) {
     const r = await githubRequest(env, "/user/repos", "POST", { name, private: !isPublic, auto_init: true, description: "" });
     return r.ok ? { response: "Repositório criado: " + r.data.full_name + "\n" + r.data.html_url, action: "github_create_repo" } : { response: "Falha ao criar: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_create_repo_failed" };
   }
+  const editIntent = /(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|substituir|substitua|atualizar|atualize).{0,100}(?:arquivo|file)|(?:arquivo|file).{0,100}(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|substituir|substitua|atualizar|atualize)/i.test(text);
+  if (editIntent && repo) {
+    const pathMatch = text.match(/(?:arquivo|file)\\s+["“]?([A-Za-z0-9_./-]+(?:\\.[A-Za-z0-9_.-]+)?|README(?:\\.md)?|AGENTS\\.md)/i);
+    const path = pathMatch?.[1]?.replace(/[”"'`.,;!?]+$/, "");
+    const contentMatch = text.match(/(?:conte[uú]do novo|novo conte[uú]do|substitua por|conte[uú]do)\\s*:\\s*([\\s\\S]+)$/i);
+    const newContent = contentMatch?.[1]?.trim();
+    if (!path) return { response: "Informe o caminho exato, por exemplo: edite o arquivo src/app.js no repositório viole777/Projeto-Sentinela.", action: "github_edit_path_needed" };
+    if (path.startsWith("/") || path.split("/").includes("..")) return { response: "Caminho inválido. Use um caminho relativo dentro do repositório.", action: "github_edit_rejected" };
+    if (!newContent) return { response: "Para evitar substituir o arquivo errado, envie o conteúdo completo desejado após \"conteúdo novo:\", junto do repositório e caminho.", action: "github_edit_content_needed" };
+    if (!confirmed) return { response: "Preparei a solicitação para substituir o conteúdo de " + repo + "/" + path + ". Isso criará um commit no GitHub. Revise o conteúdo e, se estiver correto, envie novamente a mesma solicitação começando com CONFIRMO. Nenhuma alteração foi gravada ainda.", action: "github_edit_confirmation_required" };
+    const apiPath = "/repos/" + repo.split("/").map(encodeURIComponent).join("/") + "/contents/" + path.split("/").map(encodeURIComponent).join("/");
+    const current = await githubRequest(env, apiPath);
+    if (!current.ok) return { response: "Não consegui ler a versão atual antes de editar: " + clean(current.data?.message || ("HTTP " + current.status), 250), action: "github_edit_read_failed" };
+    if (Array.isArray(current.data) || !current.data.sha) return { response: "O caminho não corresponde a um arquivo existente individual. Para criar arquivos novos, ainda precisamos de uma ação separada.", action: "github_edit_not_file" };
+    const encoded = btoa(Array.from(new TextEncoder().encode(newContent), byte => String.fromCharCode(byte)).join(""));
+    const updated = await githubRequest(env, apiPath, "PUT", {
+      message: "Update " + path,
+      content: encoded,
+      sha: current.data.sha
+    });
+    if (!updated.ok) return { response: "Falha ao gravar a edição: " + clean(updated.data?.message || ("HTTP " + updated.status), 250), action: "github_edit_failed" };
+    return { response: "Arquivo atualizado e commit criado: " + repo + "/" + path + "\\n" + (updated.data?.commit?.html_url || updated.data?.content?.html_url || ""), action: "github_edit_file" };
+  }
   const readIntent = /(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do).{0,80}(arquivo|file)|arquivo.{0,80}(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do)/i.test(text);
   if (readIntent && repo) {
     const pathMatch = text.match(/(?:arquivo|file)\s+["“]?([A-Za-z0-9_./-]+\.[A-Za-z0-9_.-]+|README(?:\.md)?|AGENTS\.md)/i);
