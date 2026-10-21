@@ -1,6 +1,10 @@
 package com.viole.jarvis.tools
 
 import android.content.Context
+import com.viole.jarvis.notifications.JarvisNotificationListener
+import org.json.JSONArray
+
+
 
 class OpenAppTool(private val context: Context) : Tool {
     override val name = "open_app"
@@ -122,3 +126,29 @@ class BackTool : Tool {
             { ToolExecutionResult.Error(it.message ?: "Could not navigate back.") }
         )
 }
+class ReadNotificationsTool(private val context: Context) : Tool {
+    override val name = "read_notifications"
+    override val description = "Read recent notification previews that the user has explicitly allowed Jarvis to access. Does not open apps or send messages."
+    override val parameters = listOf(
+        ToolParameter("limit", ParameterType.INTEGER, "Maximum number of recent notifications, from 1 to 20.")
+    )
+
+    override suspend fun execute(arguments: Map<String, Any?>): ToolExecutionResult {
+        val limit = ((arguments["limit"] as? Number)?.toInt() ?: 10).coerceIn(1, 20)
+        val prefs = context.getSharedPreferences("jarvis_notification_inbox", Context.MODE_PRIVATE)
+        val raw = prefs.getString("items", "[]") ?: "[]"
+        val items = runCatching { org.json.JSONArray(raw) }.getOrElse {
+            return ToolExecutionResult.Error("Não foi possível ler a caixa de notificações local.")
+        }
+        val output = org.json.JSONArray()
+        for (index in 0 until minOf(items.length(), limit)) {
+            items.optJSONObject(index)?.let { output.put(it) }
+        }
+        return ToolExecutionResult.Success(
+            if (output.length() == 0) {
+                "Nenhuma notificação disponível. Confirme se o acesso às notificações do Jarvis está habilitado nas configurações do Android."
+            } else output.toString()
+        )
+    }
+}
+
