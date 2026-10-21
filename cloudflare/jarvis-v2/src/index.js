@@ -434,7 +434,20 @@ export default {
           await env.DB.prepare("INSERT INTO jarvis_tasks(title,detail,due_at) VALUES(?,?,?)").bind("Revisar check-in", "O Jarvis identificou que já passou do intervalo configurado sem check-in. Isso é apenas um lembrete operacional; não significa que algo esteja errado.", new Date().toISOString()).run();
         }
       }
-      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("scheduled_review", JSON.stringify({ attention, lastCheckin: lastCheckin || null, thresholdHours, scheduledAt: new Date().toISOString() })).run();
+      const overdue = await env.DB.prepare("SELECT id,title,due_at FROM jarvis_tasks WHERE status='pending' AND due_at IS NOT NULL AND due_at < ? ORDER BY due_at ASC LIMIT 20").bind(new Date().toISOString()).all();
+      let overdueReviewsCreated = 0;
+      for (const task of (overdue.results || [])) {
+        const reviewTitle = "Revisar tarefa atrasada #" + task.id;
+        const exists = await env.DB.prepare("SELECT id FROM jarvis_tasks WHERE status='pending' AND title=? LIMIT 1").bind(reviewTitle).first();
+        if (!exists) {
+          await env.DB.prepare("INSERT INTO jarvis_tasks(title,detail,due_at) VALUES(?,?,?)").bind(reviewTitle, "A tarefa original está vencida: " + clean(task.title, 160) + ". Verifique o prazo e atualize o estado manualmente.", new Date().toISOString()).run();
+          overdueReviewsCreated++;
+        }
+      }
+      if (overdueReviewsCreated) {
+        await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES('proactive_overdue_review',?)").bind(JSON.stringify({ count: overdueReviewsCreated, at: new Date().toISOString() })).run();
+      }
+      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("scheduled_review", JSON.stringify({ attention, lastCheckin: lastCheckin || null, thresholdHours, scheduledAt: new Date().toISOString(), overdueReviewsCreated })).run();
     })());
   },
 };
