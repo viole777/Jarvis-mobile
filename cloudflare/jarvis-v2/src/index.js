@@ -9,16 +9,32 @@ function isComplexRequest(message) {
 }
 function utcDay() { return new Date().toISOString().slice(0, 10); }
 function estimateTokens(value) { return Math.max(1, Math.ceil(String(value || "").length / 4)); }
-async function chooseModel(message, env, db, promptTokens) {
+async function reserveComplexBudget(db, key, amount, dailyBudget) {
+  const reservation = Math.max(1, Math.ceil(Number(amount) || 1));
+  const result = await db.prepare(
+    "INSERT INTO jarvis_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=CAST(jarvis_state.value AS INTEGER)+CAST(excluded.value AS INTEGER), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE CAST(jarvis_state.value AS INTEGER)+CAST(excluded.value AS INTEGER)<=?"
+  ).bind(key, String(reservation), dailyBudget).run();
+  return Number(result.meta?.changes || 0) > 0;
+}
+async function settleComplexBudget(db, key, reservedTokens, actualTokens) {
+  const delta = Math.ceil(Number(actualTokens) || 0) - Math.max(0, Math.ceil(Number(reservedTokens) || 0));
+  if (!delta) return;
+  await db.prepare(
+    "UPDATE jarvis_state SET value=CAST(MAX(0,CAST(value AS INTEGER)+?) AS TEXT), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE key=?"
+  ).bind(delta, key).run();
+}
+async function chooseModel(message, env, db, promptTokens, maxOutputTokens = 700) {
   const enabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
-  if (!enabled || !isComplexRequest(message)) return { model: MODEL_FAST, reason: "fast_default", budgetRemaining: null };
+  if (!enabled || !isComplexRequest(message)) return { model: MODEL_FAST, reason: "fast_default", budgetRemaining: null, reservedTokens: 0, budgetKey: null };
   const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
   const key = "complex_tokens_" + utcDay();
-  const used = Math.max(0, Number(await state(db, key, "0")) || 0);
-  if (used + promptTokens + 700 > dailyBudget) {
-    return { model: MODEL_FAST, reason: "complex_daily_budget_exhausted", budgetRemaining: Math.max(0, dailyBudget - used) };
+  const reservedTokens = Math.max(1, Math.ceil(promptTokens + maxOutputTokens + 100));
+  if (!await reserveComplexBudget(db, key, reservedTokens, dailyBudget)) {
+    const used = Math.max(0, Number(await state(db, key, "0")) || 0);
+    return { model: MODEL_FAST, reason: "complex_daily_budget_exhausted", budgetRemaining: Math.max(0, dailyBudget - used), reservedTokens: 0, budgetKey: key };
   }
-  return { model: MODEL_COMPLEX, reason: "complex_budget_available", budgetRemaining: Math.max(0, dailyBudget - used) };
+  const used = Math.max(0, Number(await state(db, key, String(reservedTokens))) || 0);
+  return { model: MODEL_COMPLEX, reason: "complex_budget_reserved", budgetRemaining: Math.max(0, dailyBudget - used), reservedTokens, budgetKey: key };
 }
 function simulateAffect(message, attention) {
   const consequential = /\b(apagar|excluir|enviar|publicar|comprar|pagar|transferir|permiss[aã]o|senha|token)\b/i.test(message);
@@ -81,7 +97,10 @@ async function handle(request, env) {
     } catch {
       affect = { curiosity: 0.35, caution: 0.25, concern: 0.15, satisfaction: 0.2, label: "atenção", kind: "simulated_operational_state" };
     }
-    return reply({ ok: true, model: MODEL, modelRouting: String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false" ? "fast + complex model with estimated daily budget" : "fast model only (complex routing disabled)", affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
+    const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
+    const budgetUsed = Math.max(0, Number(await state(env.DB, "complex_tokens_" + utcDay(), "0")) || 0);
+    const complexEnabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
+    return reply({ ok: true, model: MODEL, modelRouting: complexEnabled ? "fast + complex model with atomic estimated daily budget" : "fast model only (complex routing disabled)", modelBudget: { enabled: complexEnabled, fastModel: MODEL_FAST, complexModel: MODEL_COMPLEX, dailyEstimatedTokenLimit: dailyBudget, estimatedTokensUsedToday: budgetUsed, estimatedTokensRemainingToday: Math.max(0, dailyBudget - budgetUsed), resetAtUtc: new Date().toISOString().slice(0,10) + "T23:59:59Z", accounting: "conservative character-based estimate; not provider-reported usage" }, affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
   if (url.pathname === "/v2/tasks" && request.method === "GET") {
@@ -193,12 +212,13 @@ async function handle(request, env) {
       return { role: "user", content: clean(m?.content, 5000) };
     })];
     const estimatedInputTokens = estimateTokens(JSON.stringify(modelMessages));
-    const routing = await chooseModel(taskText, env, env.DB, estimatedInputTokens);
+    const routing = await chooseModel(taskText, env, env.DB, estimatedInputTokens, 900);
     let usedModel = routing.model;
     let answer;
     try { answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 }); }
     catch (error) {
       if (usedModel === MODEL_FAST) throw error;
+      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       usedModel = MODEL_FAST;
       answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 });
     }
@@ -216,9 +236,7 @@ async function handle(request, env) {
     const text = clean(parsed?.text || (toolCalls.length ? "Vou propor a próxima etapa." : raw), 6000);
     const isFinal = toolCalls.length === 0 || parsed?.isFinal === true;
     if (usedModel === MODEL_COMPLEX) {
-      const key = "complex_tokens_" + utcDay();
-      const current = Math.max(0, Number(await state(env.DB, key, "0")) || 0);
-      await setState(env.DB, key, String(current + estimatedInputTokens + estimateTokens(raw)));
+      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, estimatedInputTokens + estimateTokens(raw));
     }
     await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("android_agent_plan", JSON.stringify({ model: usedModel, toolCalls: toolCalls.length, task: taskText.slice(0, 240), at: new Date().toISOString() })).run();
     return reply({ text, toolCalls, isFinal, model: usedModel, modelRouting: { reason: routing.reason, estimatedInputTokens } });
@@ -248,7 +266,7 @@ async function handle(request, env) {
     const affect = simulateAffect(message, attention);
     const messages = [{ role: "system", content: system + "\n\nOperational affect simulation: " + JSON.stringify(affect) }, ...history, { role: "user", content: message }];
     const estimatedInputTokens = estimateTokens(JSON.stringify(messages));
-    const routing = await chooseModel(message, env, env.DB, estimatedInputTokens);
+    const routing = await chooseModel(message, env, env.DB, estimatedInputTokens, 700);
     const selectedModel = routing.model;
     let answer;
     let usedModel = selectedModel;
@@ -256,6 +274,7 @@ async function handle(request, env) {
       answer = await env.AI.run(selectedModel, { messages, max_tokens: 700, temperature: 0.55 });
     } catch (primaryError) {
       if (selectedModel === MODEL_FAST) throw primaryError;
+      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       usedModel = MODEL_FAST;
       answer = await env.AI.run(MODEL_FAST, { messages, max_tokens: 700, temperature: 0.55 });
     }
@@ -264,9 +283,7 @@ async function handle(request, env) {
     const estimatedOutputTokens = estimateTokens(text);
     const estimatedTokensUsed = estimatedInputTokens + estimatedOutputTokens;
     if (usedModel === MODEL_COMPLEX) {
-      const key = "complex_tokens_" + utcDay();
-      const current = Math.max(0, Number(await state(env.DB, key, "0")) || 0);
-      await setState(env.DB, key, String(current + estimatedTokensUsed));
+      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, estimatedTokensUsed);
     }
     affect.satisfaction = 0.65;
     await setState(env.DB, "affect_state", JSON.stringify(affect));
