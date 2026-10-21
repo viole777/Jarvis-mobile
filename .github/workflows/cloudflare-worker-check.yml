@@ -1,0 +1,21 @@
+name: Cloudflare Worker syntax check
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/jarvis-v2/**"
+      - ".github/workflows/cloudflare-worker-check.yml"
+  pull_request:
+    paths:
+      - "cloudflare/jarvis-v2/**"
+      - ".github/workflows/cloudflare-worker-check.yml"
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate Worker JavaScript syntax
+        run: node --check cloudflare/jarvis-v2/src/index.js
