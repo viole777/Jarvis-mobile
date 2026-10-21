@@ -128,7 +128,7 @@ class BackTool : Tool {
 }
 class ReadNotificationsTool(private val context: Context) : Tool {
     override val name = "read_notifications"
-    override val description = "Read recent notification previews that the user has explicitly allowed Jarvis to access. Does not open apps or send messages."
+    override val description = "Read recent locally stored Android notification previews. When the user asks about recent messages, incoming notifications, or what needs a reply, call this tool first, summarize the relevant notifications, and distinguish notification previews from full conversation history. Access works only after the user enables Jarvis notification access in Android settings. This tool does not send messages."
     override val parameters = listOf(
         ToolParameter("limit", ParameterType.INTEGER, "Maximum number of recent notifications, from 1 to 20.")
     )
