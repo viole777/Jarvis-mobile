@@ -11,6 +11,7 @@ function utcDay() { return new Date().toISOString().slice(0, 10); }
 function estimateTokens(value) { return Math.max(1, Math.ceil(String(value || "").length / 4)); }
 async function reserveComplexBudget(db, key, amount, dailyBudget) {
   const reservation = Math.max(1, Math.ceil(Number(amount) || 1));
+  if (reservation > dailyBudget) return false;
   const result = await db.prepare(
     "INSERT INTO jarvis_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=CAST(jarvis_state.value AS INTEGER)+CAST(excluded.value AS INTEGER), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE CAST(jarvis_state.value AS INTEGER)+CAST(excluded.value AS INTEGER)<=?"
   ).bind(key, String(reservation), dailyBudget).run();
@@ -279,7 +280,10 @@ async function handle(request, env) {
       answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 });
     }
     const raw = clean(answer?.response || answer?.choices?.[0]?.message?.content, 8000);
-    if (!raw) return reply({ error: "O modelo não retornou um plano utilizável." }, 502);
+    if (!raw) {
+      if (usedModel === MODEL_COMPLEX) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+      return reply({ error: "O modelo não retornou um plano utilizável." }, 502);
+    }
     let parsed = null;
     try { parsed = JSON.parse(raw); } catch {
       const candidate = raw.match(/\{[\s\S]*\}/);
@@ -335,7 +339,10 @@ async function handle(request, env) {
       answer = await env.AI.run(MODEL_FAST, { messages, max_tokens: 700, temperature: 0.55 });
     }
     const text = clean(answer?.response || answer?.choices?.[0]?.message?.content, 6000);
-    if (!text) return reply({ error: "O modelo não retornou uma resposta utilizável." }, 502);
+    if (!text) {
+      if (usedModel === MODEL_COMPLEX) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+      return reply({ error: "O modelo não retornou uma resposta utilizável." }, 502);
+    }
     const estimatedOutputTokens = estimateTokens(text);
     const estimatedTokensUsed = estimatedInputTokens + estimatedOutputTokens;
     if (usedModel === MODEL_COMPLEX) {
