@@ -5,6 +5,7 @@ import android.content.Context
 class AndroidToolRegistry(private val context: Context) {
     private val tools = listOf(
         OpenAppTool(context),
+        ReadNotificationsTool(context),
         ReadScreenTool(),
         InspectScreenTool(),
         ClickTool(),
