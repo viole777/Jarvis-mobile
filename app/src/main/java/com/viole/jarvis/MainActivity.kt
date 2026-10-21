@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
 private const val PREFS = "jarvis_settings"
 private const val URL_KEY = "backend_url"
 private const val TOKEN_KEY = "backend_token"
-private const val DEFAULT_URL = "http://10.0.2.2:3000"
+private const val DEFAULT_URL = "https://jarvis-v2-cloud.viole-jarvis.workers.dev"
 private const val AUDIO_PERMISSION_REQUEST = 9001
 
 class MainActivity : ComponentActivity() {
