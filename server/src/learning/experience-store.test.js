@@ -51,3 +51,43 @@ test("memory fallback is bounded and advertises its non-persistent mode", async 
   assert.equal((await store.list()).length, 2);
   assert.equal((await store.list())[0].task, "Third");
 });
+
+
+test("PostgreSQL mode initializes schema and uses parameterized writes", async () => {
+  const calls = [];
+  const dbRecord = {
+    id: "123e4567-e89b-42d3-a456-426614174000",
+    created_at: new Date("2026-10-21T12:00:00.000Z"),
+    source: "hermes",
+    task: valid.task,
+    outcome: valid.outcome,
+    success: true,
+    verified: false,
+    tags: valid.tags
+  };
+  const pool = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes("CREATE TABLE IF NOT EXISTS")) return { rows: [], rowCount: 0 };
+      if (sql.startsWith("INSERT INTO")) return { rows: [], rowCount: 1 };
+      if (sql.startsWith("SELECT")) return { rows: [{ ...dbRecord, verified: params[0] ? true : false }], rowCount: 1 };
+      if (sql.startsWith("UPDATE")) return { rows: [{ ...dbRecord, verified: params[1] }], rowCount: 1 };
+      throw new Error("Unexpected SQL in test");
+    },
+    async end() {}
+  };
+  const store = new LearningExperienceStore({ pool });
+  assert.equal(store.mode, "postgres");
+  const created = await store.create(valid);
+  assert.equal(created.verified, false);
+  assert.equal(calls.some((call) => call.sql.includes("CREATE TABLE IF NOT EXISTS jarvis_learning_experiences")), true);
+  const insert = calls.find((call) => call.sql.startsWith("INSERT INTO"));
+  assert.equal(insert.params[2], "hermes");
+  assert.equal(insert.params[3], valid.task);
+  assert.equal(insert.sql.includes(valid.task), false, "user text must be passed as a parameter, not interpolated into SQL");
+  const reviewed = await store.verify(dbRecord.id, true);
+  assert.equal(reviewed.verified, true);
+  const verified = await store.list({ verifiedOnly: true, limit: 10 });
+  assert.equal(verified.length, 1);
+  assert.equal(calls.some((call) => call.sql.includes("verified = TRUE")), false, "filter uses a parameterized boolean");
+});
