@@ -273,13 +273,13 @@ async function handle(request, env) {
       const result = await githubRequest(env, "/user/repos?sort=updated&per_page=100&page=" + page);
       return reply({ ok: result.ok, status: result.status, repositories: result.ok ? result.data.map(r => ({ full_name:r.full_name, name:r.name, private:r.private, description:r.description, default_branch:r.default_branch, html_url:r.html_url, updated_at:r.updated_at })) : undefined, error: result.ok ? undefined : result.data.message });
     }
-    if (parts.length === 4 && parts[2] === "repo" && parts[3] && method === "GET") {
-      const fullName = decodeURIComponent(parts[3]);
+    if (parts.length === 3 && parts[2] === "repo" && method === "GET") {
+      const fullName = clean(url.searchParams.get("repo"), 200);
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) return reply({ error: "Nome do repositório inválido." }, 400);
       const result = await githubRequest(env, "/repos/" + fullName);
       return reply({ ok: result.ok, status: result.status, repository: result.ok ? result.data : undefined, error: result.ok ? undefined : result.data.message });
     }
-    if (parts.length === 4 && parts[2] === "contents" && method === "GET") {
+    if (parts.length === 3 && parts[2] === "contents" && method === "GET") {
       const fullName = url.searchParams.get("repo") || "";
       const path = url.searchParams.get("path") || "";
       const ref = url.searchParams.get("ref") || "";
