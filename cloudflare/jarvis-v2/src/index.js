@@ -63,7 +63,7 @@ async function handle(request, env) {
     const memories = await env.DB.prepare("SELECT COUNT(*) AS total FROM jarvis_memories").first();
     let affect;
     try {
-      affect = JSON.parse(await state(env.DB, "affect_state", "{\\\"curiosity\\\":0.35,\\\"caution\\\":0.25,\\\"concern\\\":0.15,\\\"satisfaction\\\":0.2,\\\"label\\\":\\\"atenção\\\",\\\"kind\\\":\\\"simulated_operational_state\\\"}"));
+      affect = JSON.parse(await state(env.DB, "affect_state", JSON.stringify({ curiosity: 0.35, caution: 0.25, concern: 0.15, satisfaction: 0.2, label: "atenção", kind: "simulated_operational_state" })));
       if (!affect || typeof affect !== "object" || Array.isArray(affect)) throw new Error("Estado afetivo inválido");
     } catch {
       affect = { curiosity: 0.35, caution: 0.25, concern: 0.15, satisfaction: 0.2, label: "atenção", kind: "simulated_operational_state" };
