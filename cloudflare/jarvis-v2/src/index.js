@@ -137,6 +137,32 @@ async function githubRequest(env, path, method = "GET", body = undefined) {
   return { ok: response.ok, status: response.status, data };
 }
 
+
+async function jarvisGitHubChatAction(message, env) {
+  const text = clean(message, 2000);
+  if (!/(github|reposit[oó]rio|repo\b|pull request|arquivo|commit)/i.test(text)) return null;
+  const token = clean(env.GITHUB_TOKEN, 500);
+  if (!token) return { response: "A integração do GitHub já está publicada no servidor, mas ainda falta autorizar a conta. Configure GITHUB_TOKEN como Secret no Worker Cloudflare. Depois disso, poderei listar repositórios, ler arquivos, criar repositórios, gravar alterações e abrir pull requests pelas rotas integradas.", action: "github_not_configured" };
+
+  if (/(listar|liste|mostr(e|ar)|quais|meus|todos).{0,35}(reposit[oó]rios|repos\b)|reposit[oó]rios.{0,25}(listar|mostrar|meus|quais)/i.test(text)) {
+    const r = await githubRequest(env, "/user/repos?sort=updated&per_page=30");
+    if (!r.ok) return { response: "Não consegui listar os repositórios do GitHub: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_list_failed" };
+    const repos = (r.data || []).map(x => "- " + x.full_name + (x.private ? " (privado)" : " (público)") + (x.description ? " — " + x.description : "") + "\n" + x.html_url);
+    return { response: repos.length ? "Repositórios acessíveis:\n" + repos.join("\n") : "Não encontrei repositórios acessíveis para essa autorização.", action: "github_list_repos" };
+  }
+
+  const createMatch = text.match(/(?:crie|criar|cria|novo|nova)\s+(?:um\s+)?(?:reposit[oó]rio|repo)\s+(?:chamado\s+|com\s+nome\s+)?([A-Za-z0-9_.-]{1,100})/i);
+  if (createMatch) {
+    const name = createMatch[1].replace(/[.,;!?]+$/, "");
+    const isPublic = /\bp[uú]blic[oa]\b/i.test(text);
+    const r = await githubRequest(env, "/user/repos", "POST", { name, private: !isPublic, auto_init: true, description: "" });
+    return r.ok
+      ? { response: "Repositório criado: " + r.data.full_name + "\n" + r.data.html_url + "\nVisibilidade: " + (r.data.private ? "privado" : "público") + ".", action: "github_create_repo" }
+      : { response: "Não consegui criar o repositório: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_create_repo_failed" };
+  }
+  return null;
+}
+
 async function handle(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   const url = new URL(request.url);
@@ -523,6 +549,13 @@ async function handle(request, env) {
     const payload = await request.json().catch(() => ({}));
     const message = clean(payload.message);
     if (!message) return reply({ error: "Envie uma mensagem." }, 400);
+    const githubAction = await jarvisGitHubChatAction(message, env);
+    if (githubAction) {
+      await env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES(?,?)").bind("user", message).run();
+      await env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES(?,?)").bind("assistant", githubAction.response).run();
+      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind(githubAction.action, JSON.stringify({ at: new Date().toISOString() })).run();
+      return reply({ response: githubAction.response, model: "Jarvis GitHub integration", action: githubAction.action });
+    }
     const needsResearch = /(pesquise|pesquisa|procure|buscar|busque|encontre|compare|preço|precos|preços|comprar|produto|loja|link|fontes|notícias|noticias|atualizado|atualizada|sentinela|github|repositório|repositorio)/i.test(message);
     const researchResults = needsResearch ? await jarvisWebSearch(message, 5) : [];
     const [memoryRows, messageRows, lastCheckin, attention] = await Promise.all([
