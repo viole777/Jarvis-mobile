@@ -72,6 +72,60 @@ async function handle(request, env) {
     return reply({ ok: true, model: MODEL, modelRouting: String(env.JARVIS_COMPLEX_MODEL_ENABLED || "").toLowerCase() === "true" ? "fast + opt-in complex model" : "fast model only (complex routing disabled)", affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
+  if (url.pathname === "/v2/tasks" && request.method === "GET") {
+    const rows = await env.DB.prepare("SELECT id,title,detail,status,due_at,created_at,completed_at FROM jarvis_tasks ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, id DESC LIMIT 100").all();
+    return reply({ ok: true, tasks: rows.results || [] });
+  }
+
+  if (url.pathname === "/v2/tasks" && request.method === "POST") {
+    const payload = await request.json().catch(() => ({}));
+    const title = clean(payload.title, 160);
+    const detail = clean(payload.detail, 2000);
+    const dueAt = typeof payload.dueAt === "string" && !Number.isNaN(Date.parse(payload.dueAt)) ? new Date(payload.dueAt).toISOString() : null;
+    if (!title) return reply({ error: "O campo title é obrigatório." }, 400);
+    const result = await env.DB.prepare("INSERT INTO jarvis_tasks(title,detail,due_at) VALUES(?,?,?)").bind(title, detail, dueAt).run();
+    await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES('task_created',?)").bind(JSON.stringify({ title, id: result.meta?.last_row_id })).run();
+    return reply({ ok: true, id: result.meta?.last_row_id, title, detail, status: "pending", dueAt }, 201);
+  }
+
+  const taskMatch = url.pathname.match(/^\\/v2\\/tasks\\/(\\d+)$/);
+  if (taskMatch && request.method === "PATCH") {
+    const payload = await request.json().catch(() => ({}));
+    const status = payload.status;
+    if (!["pending", "completed", "cancelled"].includes(status)) return reply({ error: "status deve ser pending, completed ou cancelled." }, 400);
+    const id = Number(taskMatch[1]);
+    const result = await env.DB.prepare("UPDATE jarvis_tasks SET status=?,completed_at=CASE WHEN ?='completed' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END WHERE id=?").bind(status, status, id).run();
+    if (!result.meta?.changes) return reply({ error: "Tarefa não encontrada." }, 404);
+    return reply({ ok: true, id, status });
+  }
+
+  if (url.pathname === "/v2/hermes/execute" && request.method === "POST") {
+    const endpoint = clean(env.HERMES_AGENT_URL, 500);
+    if (!endpoint || !/^https:\\/\\//i.test(endpoint)) {
+      return reply({ error: "Hermes ainda não está conectado.", detail: "Configure HERMES_AGENT_URL com o endpoint HTTPS do runtime Hermes; este bridge não simula uma execução." }, 503);
+    }
+    const payload = await request.json().catch(() => ({}));
+    const message = clean(payload.message, 4000);
+    if (!message) return reply({ error: "Envie message para o Hermes." }, 400);
+    try {
+      const headers = { "Content-Type": "application/json", "Accept": "application/json" };
+      if (env.HERMES_AGENT_TOKEN) headers.Authorization = "Bearer " + clean(env.HERMES_AGENT_TOKEN, 500);
+      const response = await fetch(endpoint, {
+        method: "POST", headers,
+        body: JSON.stringify({ message, source: "jarvis-v2-cloud", requestedAt: new Date().toISOString() }),
+        signal: AbortSignal.timeout(25000)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) return reply({ error: "O runtime Hermes recusou a solicitação.", upstreamStatus: response.status }, 502);
+      const output = clean(result.response || result.output || result.text || result.message, 6000);
+      if (!output) return reply({ error: "O runtime Hermes respondeu sem texto utilizável." }, 502);
+      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES('hermes_execution',?)").bind(JSON.stringify({ requestedAt: new Date().toISOString(), success: true })).run();
+      return reply({ ok: true, response: output, source: "hermes_runtime" });
+    } catch (error) {
+      return reply({ error: "Falha ao conectar ao runtime Hermes.", detail: clean(error?.message || "timeout", 240) }, 502);
+    }
+  }
+
   if (url.pathname === "/v2/checkin" && request.method === "POST") {
     const payload = await request.json().catch(() => ({}));
     const note = clean(payload.note, 1000);
@@ -118,8 +172,10 @@ async function handle(request, env) {
       "Não afirme que enviou notificações ou realizou ações externas. Este serviço ainda não tem canal de notificações."
     ].join("\n\n");
     const affect = simulateAffect(message, attention);
-    const selectedModel = chooseModel(message, env);
     const messages = [{ role: "system", content: system + "\n\nOperational affect simulation: " + JSON.stringify(affect) }, ...history, { role: "user", content: message }];
+    const estimatedInputTokens = estimateTokens(JSON.stringify(messages));
+    const routing = await chooseModel(message, env, env.DB, estimatedInputTokens);
+    const selectedModel = routing.model;
     let answer;
     let usedModel = selectedModel;
     try {
@@ -131,13 +187,20 @@ async function handle(request, env) {
     }
     const text = clean(answer?.response || answer?.choices?.[0]?.message?.content, 6000);
     if (!text) return reply({ error: "O modelo não retornou uma resposta utilizável." }, 502);
+    const estimatedOutputTokens = estimateTokens(text);
+    const estimatedTokensUsed = estimatedInputTokens + estimatedOutputTokens;
+    if (usedModel === MODEL_COMPLEX) {
+      const key = "complex_tokens_" + utcDay();
+      const current = Math.max(0, Number(await state(env.DB, key, "0")) || 0);
+      await setState(env.DB, key, String(current + estimatedTokensUsed));
+    }
     affect.satisfaction = 0.65;
     await setState(env.DB, "affect_state", JSON.stringify(affect));
     await env.DB.batch([
       env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES('user',?)").bind(message),
       env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES('assistant',?)").bind(text),
     ]);
-    return reply({ ok: true, response: text, model: usedModel, affect });
+    return reply({ ok: true, response: text, model: usedModel, modelRouting: { reason: routing.reason, estimatedInputTokens, estimatedOutputTokens, estimatedComplexTokensRemaining: routing.budgetRemaining }, affect });
   }
   return reply({ error: "Rota não encontrada." }, 404);
 }
@@ -156,6 +219,12 @@ export default {
       const ageMs = lastCheckin ? Date.now() - new Date(lastCheckin).getTime() : Infinity;
       const attention = ageMs >= thresholdHours * 3600000 ? "checkin_overdue" : "normal";
       await setState(env.DB, "attention_state", attention);
+      if (attention === "checkin_overdue") {
+        const pending = await env.DB.prepare("SELECT id FROM jarvis_tasks WHERE status='pending' AND title='Revisar check-in' LIMIT 1").first();
+        if (!pending) {
+          await env.DB.prepare("INSERT INTO jarvis_tasks(title,detail,due_at) VALUES(?,?,?)").bind("Revisar check-in", "O Jarvis identificou que já passou do intervalo configurado sem check-in. Isso é apenas um lembrete operacional; não significa que algo esteja errado.", new Date().toISOString()).run();
+        }
+      }
       await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("scheduled_review", JSON.stringify({ attention, lastCheckin: lastCheckin || null, thresholdHours, scheduledAt: new Date().toISOString() })).run();
     })());
   },
