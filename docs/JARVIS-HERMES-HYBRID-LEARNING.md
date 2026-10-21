@@ -35,3 +35,10 @@ Do not submit passwords, API keys, private keys, personal records, or sensitive 
 ## Model evolution
 
 The current `ml/` pipeline includes candidate generation, schema validation, deterministic dataset splits, LoRA training and evaluation. This API is a collection/review layer only; it does not yet export directly into the SFT JSONL format or attach a trained adapter to the live runtime. That integration is a separate, testable milestone. A tokenizer alone is not a neural language model, and successful training must be demonstrated with held-out evaluations before a model is promoted.
+
+
+## Inferência local sem chave de API
+
+O servidor aceita um endpoint OpenAI-compatible **local** (por exemplo, Ollama na mesma máquina) sem `AISA_API_KEY`. Configure `JARVIS_LOCAL_MODEL_URL=http://127.0.0.1:11434/v1` e `JARVIS_LOCAL_MODEL_NAME=qwen2.5:3b` no ambiente do servidor que executa o modelo. O modo local não envia cabeçalho Authorization e desativa fallbacks remotos. Endpoints HTTP sem autenticação fora de loopback são rejeitados.
+
+Isso não faz o modelo rodar dentro do Jarvis: o runtime local (por exemplo, Ollama) precisa estar instalado e executando na mesma máquina do servidor. Em hospedagem como Render, `127.0.0.1` significa o próprio contêiner, não o telefone/notebook do usuário. Este modo não exige chave de provedor, mas ainda exige um modelo local compatível e recursos de hardware. Não configure uma URL pública sem autenticação.

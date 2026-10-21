@@ -85,14 +85,16 @@ async function createSession(req, res) {
   if (!rateLimit(req, res)) return;
   cleanupSessions();
   const token = randomBytes(32).toString("base64url");
-  const client = new AIsaModelClient({ apiKey: "", model: process.env.AISA_MODEL || "", baseUrl: process.env.AISA_BASE_URL, fallbacks: [] });
+  const client = new AIsaModelClient({ apiKey: "", model: process.env.JARVIS_LOCAL_MODEL_NAME || process.env.AISA_MODEL || "", baseUrl: process.env.JARVIS_LOCAL_MODEL_URL || process.env.AISA_BASE_URL, fallbacks: [] });
   sessions.set(token, { aisa: client, createdAt: Date.now(), lastUsedAt: Date.now() });
   return json(res, 201, {
     ok: true,
     token,
     expiresInSeconds: Math.floor(SESSION_TTL_MS / 1000),
     configured: client.isConfigured(),
-    requiresApiKey: !client.isConfigured()
+    requiresApiKey: !client.isConfigured() && !client.localMode,
+    localModel: client.localMode,
+    setupHint: client.localMode ? "Modelo local configurado; nenhuma chave de API é necessária." : "Para usar modelo local, configure JARVIS_LOCAL_MODEL_URL e JARVIS_LOCAL_MODEL_NAME no servidor."
   });
 }
 

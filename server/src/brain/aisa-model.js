@@ -1,5 +1,10 @@
 const DEFAULT_BASE_URL = "https://api.aisa.one/v1";
 
+function isLoopbackUrl(value) {
+  try { const url = new URL(value); return url.protocol === "http:" && ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname); }
+  catch { return false; }
+}
+
 function toOpenAITool(tool) {
   const properties = {};
   const required = [];
@@ -71,11 +76,15 @@ function normalizeMessages(messages) {
 }
 
 export class AIsaModelClient {
-  constructor({ apiKey = process.env.AISA_API_KEY, model = process.env.AISA_MODEL, baseUrl = process.env.AISA_BASE_URL || DEFAULT_BASE_URL, fallbacks } = {}) {
+  constructor({ apiKey = process.env.AISA_API_KEY, model = process.env.JARVIS_LOCAL_MODEL_NAME || process.env.AISA_MODEL, baseUrl, fallbacks } = {}) {
+    const localUrl = process.env.JARVIS_LOCAL_MODEL_URL || "";
+    this.localMode = Boolean(localUrl && isLoopbackUrl(localUrl));
+    this.localUrlRejected = Boolean(localUrl && !this.localMode);
     this.apiKey = apiKey;
     this.model = model;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.baseUrl = (baseUrl || (this.localMode ? localUrl : process.env.AISA_BASE_URL || DEFAULT_BASE_URL)).replace(/\/+$/, "");
     this.fallbacks = Array.isArray(fallbacks) ? fallbacks : this.readFallbacks();
+    if (this.localMode) this.fallbacks = [];
   }
 
   readFallbacks() {
@@ -99,14 +108,15 @@ export class AIsaModelClient {
   }
 
   isConfigured() {
-    return Boolean(this.apiKey && this.model);
+    return Boolean(this.model && ((this.localMode && !this.localUrlRejected) || this.apiKey));
   }
 
   async complete({ messages, tools = [] }) {
-    if (!this.apiKey) throw Object.assign(new Error("AIsa não está configurada: defina AISA_API_KEY no servidor ou use a configuração segura do Jarvis."), { statusCode: 503 });
+    if (this.localUrlRejected) throw Object.assign(new Error("JARVIS_LOCAL_MODEL_URL deve apontar para localhost/127.0.0.1/::1. Modelos remotos sem autenticação são bloqueados."), { statusCode: 400 });
+    if (!this.localMode && !this.apiKey) throw Object.assign(new Error("Nenhum modelo configurado. Configure um modelo local em JARVIS_LOCAL_MODEL_URL/JARVIS_LOCAL_MODEL_NAME ou use um provedor autenticado."), { statusCode: 503 });
     if (!this.model) throw Object.assign(new Error("AIsa não está configurada: defina AISA_MODEL ou informe o identificador de modelo durante a configuração."), { statusCode: 503 });
 
-    const candidates = [{ apiKey: this.apiKey, model: this.model, baseUrl: this.baseUrl }, ...this.fallbacks];
+    const candidates = [{ apiKey: this.localMode ? "" : this.apiKey, model: this.model, baseUrl: this.baseUrl }, ...this.fallbacks];
     const normalizedMessages = normalizeMessages(messages);
     let lastError;
     for (let index = 0; index < candidates.length; index++) {
@@ -122,7 +132,7 @@ export class AIsaModelClient {
       try {
         response = await fetch(candidate.baseUrl + "/chat/completions", {
           method: "POST",
-          headers: { "Authorization": "Bearer " + candidate.apiKey, "Content-Type": "application/json" },
+          headers: { ...(candidate.apiKey ? { "Authorization": "Bearer " + candidate.apiKey } : {}), "Content-Type": "application/json" },
           body: JSON.stringify(payload),
           signal: controller.signal
         });
