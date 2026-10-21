@@ -89,5 +89,6 @@ test("PostgreSQL mode initializes schema and uses parameterized writes", async (
   assert.equal(reviewed.verified, true);
   const verified = await store.list({ verifiedOnly: true, limit: 10 });
   assert.equal(verified.length, 1);
-  assert.equal(calls.some((call) => call.sql.includes("verified = TRUE")), false, "filter uses a parameterized boolean");
+  const listCall = calls.find((call) => call.sql.startsWith("SELECT"));
+  assert.deepEqual(listCall.params, [true, 10], "verification filter and limit are bound as query parameters");
 });
