@@ -112,7 +112,8 @@ class MainActivity : ComponentActivity() {
         fun configureAgent() {
             agent = AgentLoop(
                 model = HttpModelClient(backendUrl, backendToken),
-                registry = AndroidToolRegistry(applicationContext)
+                registry = AndroidToolRegistry(applicationContext),
+                context = applicationContext
             )
         }
         configureAgent()
