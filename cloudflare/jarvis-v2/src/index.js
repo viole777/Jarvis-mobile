@@ -139,30 +139,40 @@ async function githubRequest(env, path, method = "GET", body = undefined) {
 
 
 async function jarvisGitHubChatAction(message, env) {
-  const text = clean(message, 2000);
-  if (!/(github|reposit[oó]rio|repo\b|pull request|arquivo|commit)/i.test(text)) return null;
-  const token = clean(env.GITHUB_TOKEN, 500);
-  if (!token) return { response: "A integração do GitHub já está publicada no servidor, mas ainda falta autorizar a conta. Configure GITHUB_TOKEN como Secret no Worker Cloudflare. Depois disso, poderei listar repositórios, ler arquivos, criar repositórios, gravar alterações e abrir pull requests pelas rotas integradas.", action: "github_not_configured" };
-
+  const text = clean(message, 6000);
+  if (!/(github|reposit[oó]rio|repo\b|pull request|\bpr\b|arquivo|commit)/i.test(text)) return null;
+  if (!env.GITHUB_TOKEN) return { response: "A integração GitHub está implementada, mas o Worker não recebeu GITHUB_TOKEN. Confira se foi salvo como Secret no Worker correto.", action: "github_not_configured" };
+  const repoMatch = text.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+  const repo = repoMatch?.[1] || "";
+  const confirmed = /\b(confirmo|confirmado|pode executar|autorizo)\b/i.test(text);
   if (/(listar|liste|mostr(e|ar)|quais|meus|todos).{0,35}(reposit[oó]rios|repos\b)|reposit[oó]rios.{0,25}(listar|mostrar|meus|quais)/i.test(text)) {
-    const r = await githubRequest(env, "/user/repos?sort=updated&per_page=30");
-    if (!r.ok) return { response: "Não consegui listar os repositórios do GitHub: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_list_failed" };
+    const r = await githubRequest(env, "/user/repos?sort=updated&per_page=50");
+    if (!r.ok) return { response: "Não consegui listar repositórios: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_list_failed" };
     const repos = (r.data || []).map(x => "- " + x.full_name + (x.private ? " (privado)" : " (público)") + (x.description ? " — " + x.description : "") + "\n" + x.html_url);
-    return { response: repos.length ? "Repositórios acessíveis:\n" + repos.join("\n") : "Não encontrei repositórios acessíveis para essa autorização.", action: "github_list_repos" };
+    return { response: repos.length ? "Repositórios acessíveis:\n" + repos.join("\n") : "Nenhum repositório acessível foi retornado.", action: "github_list_repos" };
   }
-
   const createMatch = text.match(/(?:crie|criar|cria|novo|nova)\s+(?:um\s+)?(?:reposit[oó]rio|repo)\s+(?:chamado\s+|com\s+nome\s+)?([A-Za-z0-9_.-]{1,100})/i);
   if (createMatch) {
     const name = createMatch[1].replace(/[.,;!?]+$/, "");
     const isPublic = /\bp[uú]blic[oa]\b/i.test(text);
+    if (!confirmed) return { response: "Posso criar " + name + " como " + (isPublic ? "público" : "privado") + ". Para executar, envie: CONFIRMO criar repositório " + name + (isPublic ? " público" : " privado") + ".", action: "github_create_repo_confirmation_required" };
     const r = await githubRequest(env, "/user/repos", "POST", { name, private: !isPublic, auto_init: true, description: "" });
-    return r.ok
-      ? { response: "Repositório criado: " + r.data.full_name + "\n" + r.data.html_url + "\nVisibilidade: " + (r.data.private ? "privado" : "público") + ".", action: "github_create_repo" }
-      : { response: "Não consegui criar o repositório: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_create_repo_failed" };
+    return r.ok ? { response: "Repositório criado: " + r.data.full_name + "\n" + r.data.html_url, action: "github_create_repo" } : { response: "Falha ao criar: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_create_repo_failed" };
+  }
+  const readIntent = /(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do).{0,80}(arquivo|file)|arquivo.{0,80}(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do)/i.test(text);
+  if (readIntent && repo) {
+    const pathMatch = text.match(/(?:arquivo|file)\s+["“]?([A-Za-z0-9_./-]+\.[A-Za-z0-9_.-]+|README(?:\.md)?|AGENTS\.md)/i);
+    const path = pathMatch?.[1];
+    if (!path) return { response: "Informe o caminho do arquivo, por exemplo: leia o arquivo backend/server.js no repositório viole777/Projeto-Sentinela.", action: "github_read_path_needed" };
+    if (path.startsWith("/") || path.split("/").includes("..")) return { response: "Caminho inválido.", action: "github_read_rejected" };
+    const r = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"));
+    if (!r.ok) return { response: "Falha ao ler arquivo: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_read_failed" };
+    if (Array.isArray(r.data) || !r.data.content) return { response: "Esse caminho não retornou um arquivo individual de texto.", action: "github_read_not_file" };
+    let decoded; try { decoded = decodeURIComponent(escape(atob(String(r.data.content).replace(/\s/g, ""))); } catch { decoded = "[Conteúdo não pôde ser decodificado]"; }
+    return { response: "Arquivo " + repo + "/" + path + "\n" + r.data.html_url + "\n\n" + decoded.slice(0, 9000), action: "github_read_file" };
   }
   return null;
 }
-
 async function handle(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   const url = new URL(request.url);
