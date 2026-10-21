@@ -168,7 +168,7 @@ async function jarvisGitHubChatAction(message, env) {
     const r = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"));
     if (!r.ok) return { response: "Falha ao ler arquivo: " + clean(r.data?.message || ("HTTP " + r.status), 250), action: "github_read_failed" };
     if (Array.isArray(r.data) || !r.data.content) return { response: "Esse caminho não retornou um arquivo individual de texto.", action: "github_read_not_file" };
-    let decoded; try { decoded = decodeURIComponent(escape(atob(String(r.data.content).replace(/\s/g, ""))); } catch { decoded = "[Conteúdo não pôde ser decodificado]"; }
+    let decoded; try { decoded = decodeURIComponent(escape(atob(String(r.data.content).replace(/\s/g, "")))); } catch { decoded = "[Conteúdo não pôde ser decodificado]"; }
     return { response: "Arquivo " + repo + "/" + path + "\n" + r.data.html_url + "\n\n" + decoded.slice(0, 9000), action: "github_read_file" };
   }
   return null;
