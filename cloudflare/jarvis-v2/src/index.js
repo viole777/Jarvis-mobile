@@ -81,6 +81,62 @@ async function handle(request, env) {
     return reply({ ok: true, service: "Jarvis V2 Cloud", authRequired: true, model: MODEL, persistentMemory: Boolean(env.DB), scheduledAgent: true });
   }
   if ((url.pathname === "/" || url.pathname === "/app") && request.method === "GET") return new Response(APP_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
+    const internalSecret = clean(env.HERMES_MODEL_PROXY_SECRET, 300);
+    if (!internalSecret) return reply({ error: "Proxy interno Hermes não configurado." }, 503);
+    if (request.headers.get("Authorization") !== "Bearer " + internalSecret) return reply({ error: "Não autorizado." }, 401);
+    if (!env.DB || !env.AI) return reply({ error: "Bindings DB/AI não configurados." }, 503);
+    await ensureSchema(env.DB);
+    const payload = await request.json().catch(() => ({}));
+    const inputMessages = Array.isArray(payload.messages) ? payload.messages.slice(-50) : [];
+    if (!inputMessages.length) return reply({ error: "messages é obrigatório." }, 400);
+    const messages = inputMessages.map(m => {
+      const role = ["system", "user", "assistant", "tool"].includes(m?.role) ? m.role : "user";
+      const item = { role, content: typeof m?.content === "string" ? m.content.slice(0, 12000) : "" };
+      if (role === "assistant" && Array.isArray(m?.tool_calls)) item.tool_calls = m.tool_calls.slice(0, 8);
+      if (role === "tool" && typeof m?.tool_call_id === "string") item.tool_call_id = m.tool_call_id.slice(0, 160);
+      return item;
+    });
+    const userPrompt = [...messages].reverse().find(m => m.role === "user")?.content || "";
+    const tools = Array.isArray(payload.tools) ? payload.tools.filter(t => t?.type === "function" && t.function?.name).slice(0, 32) : [];
+    const promptTokens = estimateTokens(JSON.stringify({ messages, tools }));
+    const requestedMax = Number(payload.max_tokens ?? payload.max_completion_tokens ?? 900);
+    const maxTokens = Math.max(128, Math.min(1600, Number.isFinite(requestedMax) ? Math.floor(requestedMax) : 900));
+    const routing = await chooseModel(userPrompt, env, env.DB, promptTokens, maxTokens);
+    let usedModel = routing.model;
+    let result;
+    try {
+      result = await env.AI.run(usedModel, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
+    } catch (error) {
+      if (usedModel === MODEL_FAST) throw error;
+      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+      usedModel = MODEL_FAST;
+      result = await env.AI.run(usedModel, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
+    }
+    const content = clean(result?.response || result?.choices?.[0]?.message?.content || result?.content, 12000);
+    const nativeCalls = Array.isArray(result?.tool_calls) ? result.tool_calls : Array.isArray(result?.toolCalls) ? result.toolCalls : result?.choices?.[0]?.message?.tool_calls || [];
+    const toolCalls = nativeCalls.slice(0, 8).map((call, i) => ({
+      id: clean(call?.id, 160) || "call_" + (i + 1),
+      type: "function",
+      function: {
+        name: clean(call?.function?.name || call?.name, 120),
+        arguments: typeof call?.function?.arguments === "string" ? call.function.arguments : JSON.stringify(call?.function?.arguments || call?.arguments || {})
+      }
+    })).filter(c => c.function.name);
+    const estimatedOutputTokens = estimateTokens(content + JSON.stringify(toolCalls));
+    if (usedModel === MODEL_COMPLEX) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, promptTokens + estimatedOutputTokens);
+    const usage = { prompt_tokens: promptTokens, completion_tokens: estimatedOutputTokens, total_tokens: promptTokens + estimatedOutputTokens };
+    return reply({
+      id: "chatcmpl-jarvis-" + crypto.randomUUID(),
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: usedModel,
+      choices: [{ index: 0, message: { role: "assistant", content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) }, finish_reason: toolCalls.length ? "tool_calls" : "stop" }],
+      usage,
+      jarvis_routing: { reason: routing.reason, estimatedComplexTokensRemaining: routing.budgetRemaining }
+    });
+  }
+
   if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
   if (!env.DB || !env.AI) return reply({ error: "Bindings DB/AI não configurados." }, 503);
   await ensureSchema(env.DB);
@@ -143,12 +199,12 @@ async function handle(request, env) {
       if (env.HERMES_AGENT_TOKEN) headers.Authorization = "Bearer " + clean(env.HERMES_AGENT_TOKEN, 500);
       const response = await fetch(endpoint, {
         method: "POST", headers,
-        body: JSON.stringify({ message, source: "jarvis-v2-cloud", requestedAt: new Date().toISOString() }),
+        body: JSON.stringify({ model: "hermes-agent", stream: false, messages: [{ role: "user", content: message }] }),
         signal: AbortSignal.timeout(25000)
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) return reply({ error: "O runtime Hermes recusou a solicitação.", upstreamStatus: response.status }, 502);
-      const output = clean(result.response || result.output || result.text || result.message, 6000);
+      const output = clean(result.choices?.[0]?.message?.content || result.response || result.output || result.text || result.message, 6000);
       if (!output) return reply({ error: "O runtime Hermes respondeu sem texto utilizável." }, 502);
       await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES('hermes_execution',?)").bind(JSON.stringify({ requestedAt: new Date().toISOString(), success: true })).run();
       return reply({ ok: true, response: output, source: "hermes_runtime" });
