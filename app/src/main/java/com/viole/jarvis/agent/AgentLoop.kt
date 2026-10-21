@@ -22,10 +22,10 @@ sealed interface AgentRunResult {
 class AgentLoop(
     private val model: ModelClient,
     private val registry: AndroidToolRegistry,
-    context: Context
+    context: Context? = null
 ) {
     private val executor = ToolExecutor(registry)
-    private val prefs = context.applicationContext.getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE)
+    private val prefs = context?.applicationContext?.getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE)
     private val messages = mutableListOf<AgentMessage>().apply { addAll(loadMessages()) }
 
     private fun saveMessages() {
@@ -48,11 +48,11 @@ class AgentLoop(
             }
             json.put(item)
         }
-        prefs.edit().putString("conversation_v1", json.toString()).apply()
+        prefs?.edit()?.putString("conversation_v1", json.toString())?.apply()
     }
 
     private fun loadMessages(): List<AgentMessage> = runCatching {
-        val json = JSONArray(prefs.getString("conversation_v1", "[]"))
+        val json = JSONArray(prefs?.getString("conversation_v1", "[]") ?: "[]")
         (0 until json.length()).mapNotNull { index ->
             val item = json.getJSONObject(index)
             when (item.optString("type")) {
