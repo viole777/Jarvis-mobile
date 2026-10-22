@@ -140,38 +140,86 @@ async function githubRequest(env, path, method = "GET", body = undefined) {
 
 async function jarvisTribunalReview(message, env) {
   const target = clean(message, 12000);
-  const reviewers = [
-    { name: "codex-risk-analyst", rating: "BLOCK / CAUTION / CLEAR", prompt: "Você é o revisor adversarial de riscos. Procure falhas de segurança, privacidade, regressões, abuso, dependências ocultas e riscos operacionais. Termine com RATING: BLOCK, CAUTION ou CLEAR." },
-    { name: "value-assessor", rating: "STRONG / ADEQUATE / WEAK", prompt: "Você é o avaliador de valor. Analise o valor entregue, alinhamento ao objetivo, utilidade, alternativas e forças que devem ser preservadas. Termine com RATING: STRONG, ADEQUATE ou WEAK." },
-    { name: "feasibility-checker", rating: "GO / CONDITIONAL / NO-GO", prompt: "Você é o verificador pragmático de viabilidade. Analise arquitetura, dependências, testes, integração, esforço e bloqueios. Não assuma que testes foram executados. Termine com RATING: GO, CONDITIONAL ou NO-GO." }
+  // Nove papéis especializados; todos usam o modelo configurado do Worker,
+  // portanto são perspectivas distintas, não nove modelos independentes.
+  const members = [
+    { name: "Presidente", focus: "coordenação, síntese e critérios de decisão" },
+    { name: "Segurança", focus: "ameaças, abuso, permissões, autenticação e limites de segurança" },
+    { name: "Privacidade", focus: "dados pessoais, consentimento, retenção e exposição de dados" },
+    { name: "Engenharia", focus: "arquitetura, correção, integração e manutenção" },
+    { name: "Testes", focus: "casos de teste, evidências, regressões e critérios de aceite" },
+    { name: "Viabilidade", focus: "custos, dependências, limites técnicos e viabilidade operacional" },
+    { name: "Valor", focus: "utilidade real, alinhamento ao objetivo e experiência do usuário" },
+    { name: "Adversarial", focus: "contradições, premissas frágeis, falhas ocultas e cenários de falha" },
+    { name: "Auditoria", focus: "evidências verificáveis, observabilidade e honestidade sobre o que foi testado" }
   ];
-  const reports = await Promise.all(reviewers.map(async reviewer => {
+  const callMember = async (member, system, user, maxTokens) => {
     try {
       const result = await env.AI.run(MODEL_FAST, {
         messages: [
-          { role: "system", content: "Você é um dos três revisores de um Tribunal do Jarvis. Responda em português brasileiro, com evidências, problemas concretos e ações objetivas. Não invente acesso a arquivos ou testes. Seu rating obrigatório: " + reviewer.rating + ". " + reviewer.prompt },
-          { role: "user", content: "Alvo da revisão (mensagem e material fornecido):\n" + target }
+          { role: "system", content: "Você é membro do Tribunal do Jarvis. Responda em português brasileiro. Seja específico, crítico e breve; diferencie fatos fornecidos de hipóteses e nunca afirme que testes ou acessos ocorreram sem evidência. Sua especialidade: " + member.focus + ". " + system },
+          { role: "user", content: user }
         ],
-        max_tokens: 500,
-        temperature: 0.2
+        max_tokens: maxTokens,
+        temperature: 0.25
       });
-      return { name: reviewer.name, report: clean(result?.response || result?.choices?.[0]?.message?.content || "Sem relatório retornado.", 3500) };
+      return { name: member.name, report: clean(result?.response || result?.choices?.[0]?.message?.content || "Sem resposta do modelo.", 2400), failed: false };
     } catch (error) {
-      return { name: reviewer.name, report: "REVISÃO FALHOU: " + clean(error?.message || "erro desconhecido", 250) };
+      return { name: member.name, report: "REVISÃO FALHOU: " + clean(error?.message || "erro desconhecido", 220), failed: true };
     }
+  };
+
+  // Rodada 1: nove pareceres independentes em paralelo.
+  const initial = await Promise.all(members.map(member => callMember(
+    member,
+    "Esta é a rodada inicial. Identifique riscos, pontos fortes, incertezas e uma recomendação objetiva. Não tente falar pelas outras especialidades.",
+    "Alvo analisado:\n" + target,
+    420
+  )));
+
+  // Rodada 2: discussão cruzada. Cada membro lê os pareceres dos outros e deve
+  // contestar ou endossar pontos com razões; isso não é apenas uma votação.
+  const discussionContext = initial.map(r => "## " + r.name + "\n" + r.report).join("\n\n");
+  const debate = await Promise.all(members.map(member => {
+    const own = initial.find(r => r.name === member.name);
+    const peers = initial.filter(r => r.name !== member.name);
+    return callMember(
+      member,
+      "Esta é a rodada de debate entre nove membros. Compare seu parecer inicial com os pareceres dos outros oito. Aponte pelo menos uma concordância e uma divergência relevante quando existirem; corrija sua posição se houver argumento melhor. Não invente uma divergência artificial. Termine com 'POSIÇÃO APÓS DEBATE: APPROVE, REVISE ou REJECT' e uma justificativa curta.",
+      "Alvo:\n" + target + "\n\nSeu parecer inicial:\n" + (own?.report || "indisponível") +
+      "\n\nPareceres dos outros oito membros:\n" + peers.map(r => "## " + r.name + "\n" + r.report).join("\n\n"),
+      500
+    );
   }));
-  const synthesis = await env.AI.run(MODEL_FAST, {
-    messages: [
-      { role: "system", content: "Sintetize três relatórios de revisão em português. Gere uma seção exatamente chamada 'Tribunal Verdict', tabela de pontuação com Risk / Value / Feasibility, veredito APPROVE / REVISE / REJECT, Contention Points, Required Actions e Strengths to Preserve. Se verdict REVISE ou REJECT, Required Actions deve conter Must Fix, Should Address e Consider. Não esconda falhas de revisão nem afirme que agentes externos foram usados; são três papéis de revisão do mesmo modelo. Não invente fatos." },
-      { role: "user", content: "Alvo: " + target + "\n\nRelatórios paralelos:\n" + reports.map(r => "## " + r.name + "\n" + r.report).join("\n\n") }
-    ],
-    max_tokens: 1100,
-    temperature: 0.2
-  });
-  const verdict = clean(synthesis?.response || synthesis?.choices?.[0]?.message?.content || "", 7000);
+
+  const allFailed = initial.every(r => r.failed) || debate.every(r => r.failed);
+  let verdict = "";
+  try {
+    const synthesis = await env.AI.run(MODEL_FAST, {
+      messages: [
+        { role: "system", content: "Você é o relator final de um Tribunal de nove membros. Sintetize os pareceres iniciais e a discussão cruzada em português brasileiro. Inclua exatamente as seções 'Tribunal Verdict', 'Resumo do debate', 'Pontos de consenso', 'Divergências', 'Ações obrigatórias' e 'Limitações'. O veredito deve ser APPROVE, REVISE ou REJECT. Não esconda pareceres falhos, não trate opiniões como fatos, e não diga que são nove modelos independentes: são nove papéis do mesmo modelo configurado. Se evidências forem insuficientes, prefira REVISE." },
+        { role: "user", content: "Alvo:\n" + target + "\n\nPARECERES INICIAIS:\n" + discussionContext + "\n\nDEBATE CRUZADO (segunda rodada):\n" + debate.map(r => "## " + r.name + (r.failed ? " [FALHOU]" : "") + "\n" + r.report).join("\n\n") }
+      ],
+      max_tokens: 1500,
+      temperature: 0.2
+    });
+    verdict = clean(synthesis?.response || synthesis?.choices?.[0]?.message?.content || "", 9000);
+  } catch (error) {
+    verdict = "A síntese final falhou: " + clean(error?.message || "erro desconhecido", 250) +
+      "\n\nRelatórios e debate disponíveis abaixo para não ocultar falhas.";
+  }
+  const reports = members.map(member => ({
+    name: member.name,
+    report: initial.find(r => r.name === member.name)?.report || "Sem parecer inicial.",
+    debate: debate.find(r => r.name === member.name)?.report || "Sem participação no debate.",
+    failed: Boolean(initial.find(r => r.name === member.name)?.failed || debate.find(r => r.name === member.name)?.failed)
+  }));
   return {
-    response: verdict || "O Tribunal não conseguiu sintetizar os relatórios. Relatórios disponíveis:\\n" + reports.map(r => r.name + ": " + r.report).join("\\n\\n"),
+    response: (verdict || "O Tribunal não conseguiu sintetizar a discussão.") +
+      (allFailed ? "\n\nALERTA: uma ou mais rodadas falharam amplamente; não trate este resultado como decisão confiável." : ""),
     action: "tribunal_review",
+    reviewerCount: members.length,
+    debateRounds: 2,
     reports
   };
 }
