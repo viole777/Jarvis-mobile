@@ -138,6 +138,44 @@ async function githubRequest(env, path, method = "GET", body = undefined) {
 }
 
 
+async function jarvisTribunalReview(message, env) {
+  const target = clean(message, 12000);
+  const reviewers = [
+    { name: "codex-risk-analyst", rating: "BLOCK / CAUTION / CLEAR", prompt: "Você é o revisor adversarial de riscos. Procure falhas de segurança, privacidade, regressões, abuso, dependências ocultas e riscos operacionais. Termine com RATING: BLOCK, CAUTION ou CLEAR." },
+    { name: "value-assessor", rating: "STRONG / ADEQUATE / WEAK", prompt: "Você é o avaliador de valor. Analise o valor entregue, alinhamento ao objetivo, utilidade, alternativas e forças que devem ser preservadas. Termine com RATING: STRONG, ADEQUATE ou WEAK." },
+    { name: "feasibility-checker", rating: "GO / CONDITIONAL / NO-GO", prompt: "Você é o verificador pragmático de viabilidade. Analise arquitetura, dependências, testes, integração, esforço e bloqueios. Não assuma que testes foram executados. Termine com RATING: GO, CONDITIONAL ou NO-GO." }
+  ];
+  const reports = await Promise.all(reviewers.map(async reviewer => {
+    try {
+      const result = await env.AI.run(MODEL_FAST, {
+        messages: [
+          { role: "system", content: "Você é um dos três revisores de um Tribunal do Jarvis. Responda em português brasileiro, com evidências, problemas concretos e ações objetivas. Não invente acesso a arquivos ou testes. Seu rating obrigatório: " + reviewer.rating + ". " + reviewer.prompt },
+          { role: "user", content: "Alvo da revisão (mensagem e material fornecido):\\n" + target }
+        ],
+        max_tokens: 500,
+        temperature: 0.2
+      });
+      return { name: reviewer.name, report: clean(result?.response || result?.choices?.[0]?.message?.content || "Sem relatório retornado.", 3500) };
+    } catch (error) {
+      return { name: reviewer.name, report: "REVISÃO FALHOU: " + clean(error?.message || "erro desconhecido", 250) };
+    }
+  }));
+  const synthesis = await env.AI.run(MODEL_FAST, {
+    messages: [
+      { role: "system", content: "Sintetize três relatórios de revisão em português. Gere uma seção exatamente chamada 'Tribunal Verdict', tabela de pontuação com Risk / Value / Feasibility, veredito APPROVE / REVISE / REJECT, Contention Points, Required Actions e Strengths to Preserve. Se verdict REVISE ou REJECT, Required Actions deve conter Must Fix, Should Address e Consider. Não esconda falhas de revisão nem afirme que agentes externos foram usados; são três papéis de revisão do mesmo modelo. Não invente fatos." },
+      { role: "user", content: "Alvo: " + target + "\\n\\nRelatórios paralelos:\\n" + reports.map(r => "## " + r.name + "\\n" + r.report).join("\\n\\n") }
+    ],
+    max_tokens: 1100,
+    temperature: 0.2
+  });
+  const verdict = clean(synthesis?.response || synthesis?.choices?.[0]?.message?.content || "", 7000);
+  return {
+    response: verdict || "O Tribunal não conseguiu sintetizar os relatórios. Relatórios disponíveis:\\n" + reports.map(r => r.name + ": " + r.report).join("\\n\\n"),
+    action: "tribunal_review",
+    reports
+  };
+}
+
 async function jarvisGitHubChatAction(message, env) {
   const text = clean(message, 6000);
   if (!/(github|reposit[oó]rio|repo\b|pull request|\bpr\b|arquivo|commit)/i.test(text)) return null;
@@ -599,6 +637,15 @@ async function handle(request, env) {
     const payload = await request.json().catch(() => ({}));
     const message = clean(payload.message);
     if (!message) return reply({ error: "Envie uma mensagem." }, 400);
+    if (/^\\s*\\/tribunal\\b|\\btribunal\\b|3-way review|risk-value-feasibility check|review this/i.test(message)) {
+      const review = await jarvisTribunalReview(message, env);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES('user',?)").bind(message),
+        env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES('assistant',?)").bind(review.response)
+      ]);
+      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind(review.action, JSON.stringify({ at: new Date().toISOString(), reviewers: review.reports.map(r => r.name) })).run();
+      return reply({ ok: true, response: review.response, model: MODEL_FAST, action: review.action, reviewerCount: review.reports.length });
+    }
     const githubAction = await jarvisGitHubChatAction(message, env);
     if (githubAction) {
       await env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES(?,?)").bind("user", message).run();
