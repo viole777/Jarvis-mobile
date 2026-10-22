@@ -211,14 +211,33 @@ async function jarvisGitHubChatAction(message, env) {
     const current = await githubRequest(env, apiPath);
     if (!current.ok) return { response: "Não consegui ler a versão atual antes de editar: " + clean(current.data?.message || ("HTTP " + current.status), 250), action: "github_edit_read_failed" };
     if (Array.isArray(current.data) || !current.data.sha) return { response: "O caminho não corresponde a um arquivo existente individual. Para criar arquivos novos, ainda precisamos de uma ação separada.", action: "github_edit_not_file" };
+    const repoInfo = await githubRequest(env, "/repos/" + repo.split("/").map(encodeURIComponent).join("/"));
+    if (!repoInfo.ok || !repoInfo.data?.default_branch) return { response: "Não consegui identificar a branch padrão do repositório; nenhuma alteração foi gravada.", action: "github_edit_repo_info_failed" };
+    const base = repoInfo.data.default_branch;
+    const baseRef = await githubRequest(env, "/repos/" + repo.split("/").map(encodeURIComponent).join("/") + "/git/ref/heads/" + encodeURIComponent(base));
+    if (!baseRef.ok || !baseRef.data?.object?.sha) return { response: "Não consegui obter o commit-base da branch " + base + "; nenhuma alteração foi gravada.", action: "github_edit_base_failed" };
+    const branch = "jarvis/edit-" + Date.now().toString(36);
+    const createdBranch = await githubRequest(env, "/repos/" + repo.split("/").map(encodeURIComponent).join("/") + "/git/refs", "POST", {
+      ref: "refs/heads/" + branch,
+      sha: baseRef.data.object.sha
+    });
+    if (!createdBranch.ok) return { response: "Não consegui criar uma branch isolada: " + clean(createdBranch.data?.message || ("HTTP " + createdBranch.status), 250) + ". A branch principal não foi alterada.", action: "github_edit_branch_failed" };
     const encoded = btoa(Array.from(new TextEncoder().encode(newContent), byte => String.fromCharCode(byte)).join(""));
     const updated = await githubRequest(env, apiPath, "PUT", {
-      message: "Update " + path,
+      message: "Jarvis: update " + path,
       content: encoded,
-      sha: current.data.sha
+      sha: current.data.sha,
+      branch
     });
-    if (!updated.ok) return { response: "Falha ao gravar a edição: " + clean(updated.data?.message || ("HTTP " + updated.status), 250), action: "github_edit_failed" };
-    return { response: "Arquivo atualizado e commit criado: " + repo + "/" + path + "\\n" + (updated.data?.commit?.html_url || updated.data?.content?.html_url || ""), action: "github_edit_file" };
+    if (!updated.ok) return { response: "A branch " + branch + " foi criada, mas a gravação falhou: " + clean(updated.data?.message || ("HTTP " + updated.status), 250) + ". A branch principal não foi alterada.", action: "github_edit_failed" };
+    const pull = await githubRequest(env, "/repos/" + repo.split("/").map(encodeURIComponent).join("/") + "/pulls", "POST", {
+      title: "Jarvis: update " + path,
+      head: branch,
+      base,
+      body: "## Alteração proposta pelo Jarvis\n\n- Arquivo: \`" + path + "\`\n- A alteração foi preparada após confirmação explícita.\n- Revise o diff e aguarde os checks automatizados antes de fazer merge.\n\nEste PR não foi mesclado automaticamente."
+    });
+    if (!pull.ok) return { response: "Alteração gravada na branch " + branch + ", mas não consegui abrir o PR: " + clean(pull.data?.message || ("HTTP " + pull.status), 250) + ". Revise a branch manualmente: " + (repoInfo.data.html_url || ""), action: "github_edit_pr_failed" };
+    return { response: "Proposta de alteração criada sem tocar na branch principal.\nArquivo: " + repo + "/" + path + "\nBranch: " + branch + "\nPull request: " + (pull.data?.html_url || "") + "\nOs testes e a revisão do PR devem passar antes do merge. Não fiz merge nem deploy.", action: "github_edit_pull_request" };
   }
   const readIntent = /(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do).{0,80}(arquivo|file)|arquivo.{0,80}(leia|ler|mostre|mostrar|abra|abrir|conte[uú]do)/i.test(text);
   if (readIntent && repo) {
