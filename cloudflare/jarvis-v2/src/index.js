@@ -150,7 +150,7 @@ async function jarvisTribunalReview(message, env) {
       const result = await env.AI.run(MODEL_FAST, {
         messages: [
           { role: "system", content: "Você é um dos três revisores de um Tribunal do Jarvis. Responda em português brasileiro, com evidências, problemas concretos e ações objetivas. Não invente acesso a arquivos ou testes. Seu rating obrigatório: " + reviewer.rating + ". " + reviewer.prompt },
-          { role: "user", content: "Alvo da revisão (mensagem e material fornecido):\\n" + target }
+          { role: "user", content: "Alvo da revisão (mensagem e material fornecido):\n" + target }
         ],
         max_tokens: 500,
         temperature: 0.2
@@ -163,7 +163,7 @@ async function jarvisTribunalReview(message, env) {
   const synthesis = await env.AI.run(MODEL_FAST, {
     messages: [
       { role: "system", content: "Sintetize três relatórios de revisão em português. Gere uma seção exatamente chamada 'Tribunal Verdict', tabela de pontuação com Risk / Value / Feasibility, veredito APPROVE / REVISE / REJECT, Contention Points, Required Actions e Strengths to Preserve. Se verdict REVISE ou REJECT, Required Actions deve conter Must Fix, Should Address e Consider. Não esconda falhas de revisão nem afirme que agentes externos foram usados; são três papéis de revisão do mesmo modelo. Não invente fatos." },
-      { role: "user", content: "Alvo: " + target + "\\n\\nRelatórios paralelos:\\n" + reports.map(r => "## " + r.name + "\\n" + r.report).join("\\n\\n") }
+      { role: "user", content: "Alvo: " + target + "\n\nRelatórios paralelos:\n" + reports.map(r => "## " + r.name + "\n" + r.report).join("\n\n") }
     ],
     max_tokens: 1100,
     temperature: 0.2
@@ -199,9 +199,9 @@ async function jarvisGitHubChatAction(message, env) {
   }
   const editIntent = /(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|substituir|substitua|atualizar|atualize).{0,100}(?:arquivo|file)|(?:arquivo|file).{0,100}(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|substituir|substitua|atualizar|atualize)/i.test(text);
   if (editIntent && repo) {
-    const pathMatch = text.match(/(?:arquivo|file)\\s+["“]?([A-Za-z0-9_./-]+(?:\\.[A-Za-z0-9_.-]+)?|README(?:\\.md)?|AGENTS\\.md)/i);
+    const pathMatch = text.match(/(?:arquivo|file)\s+["“]?([A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_.-]+)?|README(?:\.md)?|AGENTS\.md)/i);
     const path = pathMatch?.[1]?.replace(/[”"'`.,;!?]+$/, "");
-    const contentMatch = text.match(/(?:conte[uú]do novo|novo conte[uú]do|substitua por|conte[uú]do)\\s*:\\s*([\\s\\S]+)$/i);
+    const contentMatch = text.match(/(?:conte[uú]do novo|novo conte[uú]do|substitua por|conte[uú]do)\s*:\s*([\s\S]+)$/i);
     const newContent = contentMatch?.[1]?.trim();
     if (!path) return { response: "Informe o caminho exato, por exemplo: edite o arquivo src/app.js no repositório viole777/Projeto-Sentinela.", action: "github_edit_path_needed" };
     if (path.startsWith("/") || path.split("/").includes("..")) return { response: "Caminho inválido. Use um caminho relativo dentro do repositório.", action: "github_edit_rejected" };
