@@ -572,7 +572,7 @@ async function handle(request, env) {
     const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
     const budgetUsed = Math.max(0, Number(await state(env.DB, "complex_tokens_" + utcDay(), "0")) || 0);
     const complexEnabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
-    return reply({ ok: true, model: MODEL, modelRouting: complexEnabled ? "fast + complex model with atomic estimated daily budget" : "fast model only (complex routing disabled)", modelBudget: { enabled: complexEnabled, fastModel: MODEL_FAST, complexModel: MODEL_COMPLEX, dailyEstimatedTokenLimit: dailyBudget, estimatedTokensUsedToday: budgetUsed, estimatedTokensRemainingToday: Math.max(0, dailyBudget - budgetUsed), resetAtUtc: new Date().toISOString().slice(0,10) + "T23:59:59Z", accounting: "conservative character-based estimate; not provider-reported usage" }, affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
+    return reply({ ok: true, providers: { gemini: Boolean(env.GEMINI_API_KEY), groq: Boolean(env.GROQ_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY), nvidia: Boolean(env.NVIDIA_API_KEY) }, model: MODEL, modelRouting: complexEnabled ? "fast + complex model with atomic estimated daily budget" : "fast model only (complex routing disabled)", modelBudget: { enabled: complexEnabled, fastModel: MODEL_FAST, complexModel: MODEL_COMPLEX, dailyEstimatedTokenLimit: dailyBudget, estimatedTokensUsedToday: budgetUsed, estimatedTokensRemainingToday: Math.max(0, dailyBudget - budgetUsed), resetAtUtc: new Date().toISOString().slice(0,10) + "T23:59:59Z", accounting: "conservative character-based estimate; not provider-reported usage" }, affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
   if (url.pathname === "/v2/tasks" && request.method === "GET") {
@@ -613,14 +613,20 @@ async function handle(request, env) {
     ];
     const inputTokens = estimateTokens(JSON.stringify(prompt));
     const routing = await chooseModel(goal, env, env.DB, inputTokens, 900);
+    const external = await jarvisCallExternalProvider(prompt, [], 900, env, true);
     let result, usedModel = routing.model;
-    try {
-      result = await env.AI.run(usedModel, { messages: prompt, max_tokens: 900, temperature: 0.2 });
-    } catch (error) {
-      if (usedModel === MODEL_FAST) throw error;
-      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
-      usedModel = MODEL_FAST;
-      result = await env.AI.run(MODEL_FAST, { messages: prompt, max_tokens: 900, temperature: 0.2 });
+    if (external.provider) {
+      result = external.result;
+      usedModel = external.provider + "/" + external.model;
+    } else {
+      try {
+        result = await env.AI.run(usedModel, { messages: prompt, max_tokens: 900, temperature: 0.2 });
+      } catch (error) {
+        if (usedModel === MODEL_FAST) throw error;
+        await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+        usedModel = MODEL_FAST;
+        result = await env.AI.run(MODEL_FAST, { messages: prompt, max_tokens: 900, temperature: 0.2 });
+      }
     }
     const raw = clean(result?.response || result?.choices?.[0]?.message?.content, 8000);
     const jsonText = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
