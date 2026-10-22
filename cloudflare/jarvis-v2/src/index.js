@@ -253,6 +253,13 @@ async function jarvisGitHubChatAction(message, env) {
     let decoded; try { decoded = decodeURIComponent(escape(atob(String(r.data.content).replace(/\s/g, "")))); } catch { decoded = "[Conteúdo não pôde ser decodificado]"; }
     return { response: "Arquivo " + repo + "/" + path + "\n" + r.data.html_url + "\n\n" + decoded.slice(0, 9000), action: "github_read_file" };
   }
+  const broadEditIntent = /(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|consertar|conserte|melhorar|melhore|implementar|implemente|atualizar|atualize).{0,100}(?:github|reposit[oó]rio|repos\\b|c[oó]digo|projeto)|(?:github|reposit[oó]rio|repos\\b|c[oó]digo|projeto).{0,100}(?:editar|edite|alterar|altere|modificar|modifique|corrigir|corrija|consertar|conserte|melhorar|melhore|implementar|implemente|atualizar|atualize)/i.test(text);
+  if (broadEditIntent) {
+    return {
+      response: "A integração GitHub está disponível para esta conversa, mas preciso identificar a alteração antes de gravar qualquer coisa. Envie o repositório (owner/repo) e descreva o que deseja corrigir ou implementar. Posso analisar os arquivos e preparar uma alteração em uma branch com Pull Request; não altero a branch principal nem faço merge automaticamente. Se quiser substituir um arquivo diretamente, informe também o caminho e o conteúdo novo completo.",
+      action: "github_edit_details_needed"
+    };
+  }
   return null;
 }
 async function handle(request, env) {
