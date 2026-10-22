@@ -176,6 +176,61 @@ async function jarvisTribunalReview(message, env) {
   };
 }
 
+
+async function jarvisDailyToolAction(message) {
+  const text = clean(message, 2000);
+  const timeIntent = /\b(que horas|hora atual|horas são|horário agora|data de hoje|que dia é hoje|data atual)\b/i.test(text);
+  if (timeIntent) {
+    const zones = [
+      [/\b(bras[ií]lia|s[aã]o paulo|goi[aá]s|brasil)\b/i, "America/Sao_Paulo"],
+      [/\b(lisboa|portugal)\b/i, "Europe/Lisbon"],
+      [/\b(londres|uk|reino unido)\b/i, "Europe/London"],
+      [/\b(nova york|new york)\b/i, "America/New_York"],
+      [/\b(los angeles|calif[oó]rnia)\b/i, "America/Los_Angeles"],
+      [/\b(tokyo|t[oó]quio|jap[aã]o)\b/i, "Asia/Tokyo"]
+    ];
+    const zone = zones.find(([re]) => re.test(text))?.[1] || "America/Sao_Paulo";
+    const now = new Date();
+    const date = new Intl.DateTimeFormat("pt-BR", { timeZone: zone, dateStyle: "full" }).format(now);
+    const time = new Intl.DateTimeFormat("pt-BR", { timeZone: zone, hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" }).format(now);
+    return { response: "Agora são " + time + ", " + date + " (fuso " + zone + ").", action: "daily_time", source: "runtime_clock" };
+  }
+  const weatherIntent = /\b(clima|tempo|previs[aã]o do tempo|vai chover|temperatura|chance de chuva|umidade)\b/i.test(text);
+  if (weatherIntent) {
+    const loc = text.match(/\b(?:em|para|no|na|do|da)\s+([\p{L}][\p{L} .'-]{1,70}?)(?=\s+(?:agora|hoje|amanh[aã]|esta semana|nos pr[oó]ximos)|[?!,.]|$)/iu);
+    const place = (loc?.[1] || "").trim().replace(/\s+/g, " ");
+    if (!place || /^(?:hoje|amanh[aã]|agora|aqui|mim)$/i.test(place)) {
+      return { response: "Consigo consultar a previsão em tempo real. Qual cidade devo consultar? Se quiser, informe também o estado ou país.", action: "weather_location_needed" };
+    }
+    try {
+      const geoRes = await fetch("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(place) + "&count=1&language=pt&format=json", { signal: AbortSignal.timeout(8000) });
+      if (!geoRes.ok) throw new Error("geocodificação indisponível");
+      const geo = await geoRes.json();
+      const p = geo.results?.[0];
+      if (!p) return { response: "Não encontrei a cidade '" + place + "'. Informe cidade e estado/país para eu tentar novamente.", action: "weather_place_not_found" };
+      const url = "https://api.open-meteo.com/v1/forecast?latitude=" + p.latitude + "&longitude=" + p.longitude + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=2&timezone=auto";
+      const wxRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!wxRes.ok) throw new Error("serviço de previsão indisponível");
+      const wx = await wxRes.json();
+      const c = wx.current || {};
+      const d = wx.daily || {};
+      const descriptions = {0:"céu limpo",1:"predominantemente limpo",2:"parcialmente nublado",3:"nublado",45:"neblina",48:"neblina com geada",51:"garoa leve",53:"garoa moderada",55:"garoa intensa",61:"chuva fraca",63:"chuva moderada",65:"chuva forte",71:"neve fraca",73:"neve moderada",75:"neve forte",80:"pancadas fracas",81:"pancadas moderadas",82:"pancadas fortes",95:"trovoadas",96:"trovoadas com granizo leve",99:"trovoadas com granizo forte"};
+      const placeName = [p.name, p.admin1, p.country].filter(Boolean).join(", ");
+      return { response: "Clima atual em " + placeName + ": " + (descriptions[c.weather_code] || "condição não identificada") + ", " + c.temperature_2m + " °C (sensação " + c.apparent_temperature + " °C), umidade " + c.relative_humidity_2m + "% e vento " + c.wind_speed_10m + " km/h. Previsão de hoje: mínima " + d.temperature_2m_min?.[0] + " °C, máxima " + d.temperature_2m_max?.[0] + " °C, probabilidade máxima de chuva " + d.precipitation_probability_max?.[0] + "%. Fonte: Open-Meteo; atualizado em " + c.time + ".", action: "daily_weather", source: "open_meteo" };
+    } catch {
+      return { response: "Não consegui acessar o serviço de previsão agora. Tente novamente em instantes; não vou inventar os dados do clima.", action: "weather_unavailable" };
+    }
+  }
+  const searchIntent = /\b(pesquise|pesquisar|pesquisa|procure na internet|buscar na internet|busque na web|pesquisa web|últimas notícias|ultimas noticias|notícias de hoje|noticias de hoje|o que aconteceu hoje|informações atuais|informa[cç][õo]es atuais|fonte confiável|fontes confiáveis)\b/i.test(text);
+  if (searchIntent) {
+    const query = text.replace(/^.*?\b(?:pesquise|pesquisar|pesquisa|procure na internet|buscar na internet|busque na web|pesquisa web)\b\s*/i, "").trim() || text;
+    const results = await jarvisWebSearch(query, 5);
+    if (!results.length) return { response: "A pesquisa web não retornou resultados utilizáveis agora. Posso tentar outra consulta, mas não vou apresentar informação atual sem fonte.", action: "daily_search_unavailable" };
+    return { response: "Encontrei estes resultados para: " + query + "\n\n" + results.map((r, i) => (i + 1) + ". " + r.title + "\n" + r.snippet + "\n" + r.url).join("\n\n"), action: "daily_web_search", source: "DuckDuckGo" };
+  }
+  return null;
+}
+
 async function jarvisGitHubChatAction(message, env) {
   const text = clean(message, 6000);
   if (!/(github|reposit[oó]rio|repo\b|pull request|\bpr\b|arquivo|commit)/i.test(text)) return null;
@@ -679,6 +734,15 @@ async function handle(request, env) {
       ]);
       await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind(review.action, JSON.stringify({ at: new Date().toISOString(), reviewers: review.reports.map(r => r.name) })).run();
       return reply({ ok: true, response: review.response, model: MODEL_FAST, action: review.action, reviewerCount: review.reports.length });
+    }
+    const dailyAction = await jarvisDailyToolAction(message);
+    if (dailyAction) {
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES(?,?)").bind("user", message),
+        env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES(?,?)").bind("assistant", dailyAction.response),
+        env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind(dailyAction.action, JSON.stringify({ at: new Date().toISOString(), source: dailyAction.source || null }))
+      ]);
+      return reply({ ok: true, response: dailyAction.response, model: "Jarvis Daily Tools", action: dailyAction.action, source: dailyAction.source || null });
     }
     const githubAction = await jarvisGitHubChatAction(message, env);
     if (githubAction) {
