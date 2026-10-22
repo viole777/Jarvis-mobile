@@ -637,7 +637,7 @@ async function handle(request, env) {
     const payload = await request.json().catch(() => ({}));
     const message = clean(payload.message);
     if (!message) return reply({ error: "Envie uma mensagem." }, 400);
-    if (/^\\s*\\/tribunal\\b|\\btribunal\\b|3-way review|risk-value-feasibility check|review this/i.test(message)) {
+    if (/^\s*\/tribunal\b|\btribunal\b|3-way review|risk-value-feasibility check|review this/i.test(message)) {
       const review = await jarvisTribunalReview(message, env);
       await env.DB.batch([
         env.DB.prepare("INSERT INTO jarvis_messages(role,content) VALUES('user',?)").bind(message),
