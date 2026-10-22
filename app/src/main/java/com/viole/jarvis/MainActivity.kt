@@ -154,7 +154,23 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString(URL_KEY, backendUrl).putString(TOKEN_KEY, backendToken).apply()
                     configureAgent()
                 },
-                onRunAgent = { input, onResult -> lifecycleScope.launch {\n                    val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)\n                    onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))\n                } },
+                onRunAgent = { input, onResult ->
+                    lifecycleScope.launch {
+                        val localResult = LocalCommandRouter(
+                            applicationContext,
+                            AndroidToolRegistry(applicationContext)
+                        ).run(input)
+                        onResult(
+                            localResult ?: if (backendToken.isBlank()) {
+                                AgentRunResult.Failed(
+                                    "O Jarvis ainda não está conectado. Abra ACESSO AO JARVIS, informe seu token de acesso e toque em Conectar Jarvis."
+                                )
+                            } else {
+                                agent.run(input)
+                            }
+                        )
+                    }
+                },
                 onConfirm = { approved, onResult -> lifecycleScope.launch { onResult(agent.confirmPending(approved)) } }
             )
         }
@@ -310,7 +326,7 @@ private fun JarvisScreen(
                     Text("COMANDO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                     OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("O que devo fazer?") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     Button(
-                        enabled = command.isNotBlank() && !busy && JarvisAccessibilityService.instance != null,
+                        enabled = command.isNotBlank() && !busy,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             busy = true
@@ -331,11 +347,32 @@ private fun JarvisScreen(
                 }
 
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("CONEXÃO SEGURA", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-                    OutlinedTextField(value = backendUrl, onValueChange = { backendUrl = it }, label = { Text("URL do backend") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = backendToken, onValueChange = { backendToken = it }, label = { Text("Token de acesso") }, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = { onSaveBackend(backendUrl, backendToken); status = "Configuração salva localmente." }, modifier = Modifier.fillMaxWidth()) { Text("Salvar conexão") }
-                    Text("O token fica armazenado no dispositivo e é enviado somente ao backend configurado.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("ACESSO AO JARVIS", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                    Text("Servidor Jarvis V3", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Backend integrado automaticamente. Você não precisa informar a URL.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = backendToken,
+                        onValueChange = { backendToken = it },
+                        label = { Text("Seu token de acesso") },
+                        placeholder = { Text("Cole o token do Jarvis") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                    Button(
+                        onClick = {
+                            if (backendToken.isBlank()) {
+                                status = "Insira seu token de acesso para conectar a IA."
+                                response = status
+                            } else {
+                                onSaveBackend(DEFAULT_URL, backendToken.trim())
+                                status = "Token salvo neste dispositivo."
+                                response = "Acesso configurado. Envie uma mensagem para testar a conexão."
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Conectar Jarvis") }
+                    Text("O token é guardado localmente e enviado ao backend fixo do Jarvis. Não compartilhe seu token.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(8.dp))
             }
