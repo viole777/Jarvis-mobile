@@ -398,6 +398,8 @@ async function handle(request, env) {
     let usedModel = external.provider ? external.provider + "/" + external.model : routing.model;
     let result;
     if (external.provider) {
+      // External providers do not consume the Cloudflare AI complex-model budget.
+      if (routing.reservedTokens > 0) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       result = external.result;
     } else {
       try {
@@ -616,6 +618,8 @@ async function handle(request, env) {
     const external = await jarvisCallExternalProvider(prompt, [], 900, env, true);
     let result, usedModel = routing.model;
     if (external.provider) {
+      // External providers do not consume the Cloudflare AI complex-model budget.
+      if (routing.reservedTokens > 0) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       result = external.result;
       usedModel = external.provider + "/" + external.model;
     } else {
@@ -747,6 +751,8 @@ async function handle(request, env) {
     let usedModel = routing.model;
     let answer;
     if (external.provider) {
+      // External providers do not consume the Cloudflare AI complex-model budget.
+      if (routing.reservedTokens > 0) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       answer = external.result;
       usedModel = external.provider + "/" + external.model;
     } else {
@@ -845,6 +851,8 @@ async function handle(request, env) {
     let answer;
     let usedModel = selectedModel;
     if (external.provider) {
+      // External providers do not consume the Cloudflare AI complex-model budget.
+      if (routing.reservedTokens > 0) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       answer = external.result;
       usedModel = external.provider + "/" + external.model;
     } else {
