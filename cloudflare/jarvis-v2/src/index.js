@@ -26,13 +26,20 @@ async function settleComplexBudget(db, key, reservedTokens, actualTokens) {
 }
 
 async function jarvisCallExternalProvider(messages, tools, maxTokens, env, preferComplex = false) {
+  const freeLlmBase = clean(env.FREELLMAPI_BASE_URL || "", 500).replace(/\\/+$/, "");
   const providers = [
+    ...(freeLlmBase && env.FREELLMAPI_API_KEY ? [{
+      name: "freellmapi",
+      key: env.FREELLMAPI_API_KEY,
+      url: freeLlmBase.endsWith("/v1") ? freeLlmBase + "/chat/completions" : freeLlmBase + "/v1/chat/completions",
+      model: env.FREELLMAPI_MODEL || "auto:smart"
+    }] : []),
     { name: "gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-2.5-flash" },
     { name: "groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "llama-3.3-70b-versatile" },
     { name: "openrouter", key: env.OPENROUTER_API_KEY, url: "https://openrouter.ai/api/v1/chat/completions", model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free" },
     { name: "nvidia", key: env.NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct" }
   ].filter(p => typeof p.key === "string" && p.key.trim());
-  const order = preferComplex ? ["gemini", "nvidia", "groq", "openrouter"] : ["groq", "gemini", "nvidia", "openrouter"];
+  const order = preferComplex ? ["freellmapi", "gemini", "nvidia", "groq", "openrouter"] : ["freellmapi", "groq", "gemini", "nvidia", "openrouter"];
   providers.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
   const failures = [];
   for (const provider of providers) {
@@ -575,7 +582,7 @@ async function handle(request, env) {
     const dailyBudget = Math.max(1000, Math.min(2_000_000, Number(env.JARVIS_COMPLEX_DAILY_TOKEN_BUDGET || 60000)));
     const budgetUsed = Math.max(0, Number(await state(env.DB, "complex_tokens_" + utcDay(), "0")) || 0);
     const complexEnabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
-    return reply({ ok: true, providers: { gemini: Boolean(env.GEMINI_API_KEY), groq: Boolean(env.GROQ_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY), nvidia: Boolean(env.NVIDIA_API_KEY) }, model: MODEL, modelRouting: complexEnabled ? "fast + complex model with atomic estimated daily budget" : "fast model only (complex routing disabled)", modelBudget: { enabled: complexEnabled, fastModel: MODEL_FAST, complexModel: MODEL_COMPLEX, dailyEstimatedTokenLimit: dailyBudget, estimatedTokensUsedToday: budgetUsed, estimatedTokensRemainingToday: Math.max(0, dailyBudget - budgetUsed), resetAtUtc: new Date().toISOString().slice(0,10) + "T23:59:59Z", accounting: "conservative character-based estimate; not provider-reported usage" }, affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
+    return reply({ ok: true, providers: { freellmapi: Boolean(env.FREELLMAPI_BASE_URL && env.FREELLMAPI_API_KEY), gemini: Boolean(env.GEMINI_API_KEY), groq: Boolean(env.GROQ_API_KEY), openrouter: Boolean(env.OPENROUTER_API_KEY), nvidia: Boolean(env.NVIDIA_API_KEY) }, model: MODEL, modelRouting: complexEnabled ? "fast + complex model with atomic estimated daily budget" : "fast model only (complex routing disabled)", modelBudget: { enabled: complexEnabled, fastModel: MODEL_FAST, complexModel: MODEL_COMPLEX, dailyEstimatedTokenLimit: dailyBudget, estimatedTokensUsedToday: budgetUsed, estimatedTokensRemainingToday: Math.max(0, dailyBudget - budgetUsed), resetAtUtc: new Date().toISOString().slice(0,10) + "T23:59:59Z", accounting: "conservative character-based estimate; not provider-reported usage" }, affect, lastCheckin: lastCheckin || null, attention, latestPulse: pulse || null, memoryCount: memories?.total || 0, serverTime: new Date().toISOString() });
   }
 
   if (url.pathname === "/v2/tasks" && request.method === "GET") {
