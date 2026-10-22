@@ -117,6 +117,44 @@ test("preserves validated image parts for multimodal requests", async () => {
 });
 
 
+test("supports a loopback local OpenAI-compatible model without an API key", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.JARVIS_LOCAL_MODEL_URL;
+  const originalName = process.env.JARVIS_LOCAL_MODEL_NAME;
+  process.env.JARVIS_LOCAL_MODEL_URL = "http://127.0.0.1:11434/v1";
+  process.env.JARVIS_LOCAL_MODEL_NAME = "qwen2.5:3b";
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url, options };
+    return new Response(JSON.stringify({ choices: [{ message: { content: "Resposta local", tool_calls: [] } }] }), { status: 200 });
+  };
+  try {
+    const client = new AIsaModelClient({ apiKey: "", fallbacks: [] });
+    assert.equal(client.isConfigured(), true);
+    const result = await client.complete({ messages: [{ role: "user", content: "Oi" }] });
+    assert.equal(captured.url, "http://127.0.0.1:11434/v1/chat/completions");
+    assert.equal("Authorization" in captured.options.headers, false);
+    assert.equal(JSON.parse(captured.options.body).model, "qwen2.5:3b");
+    assert.equal(result.text, "Resposta local");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalUrl === undefined) delete process.env.JARVIS_LOCAL_MODEL_URL; else process.env.JARVIS_LOCAL_MODEL_URL = originalUrl;
+    if (originalName === undefined) delete process.env.JARVIS_LOCAL_MODEL_NAME; else process.env.JARVIS_LOCAL_MODEL_NAME = originalName;
+  }
+});
+
+test("rejects remote unauthenticated local-model endpoints", async () => {
+  const originalUrl = process.env.JARVIS_LOCAL_MODEL_URL;
+  process.env.JARVIS_LOCAL_MODEL_URL = "http://example.com/v1";
+  try {
+    const client = new AIsaModelClient({ apiKey: "", model: "test-model", fallbacks: [] });
+    assert.equal(client.isConfigured(), false);
+    await assert.rejects(client.complete({ messages: [{ role: "user", content: "Oi" }] }), (error) => error.statusCode === 400);
+  } finally {
+    if (originalUrl === undefined) delete process.env.JARVIS_LOCAL_MODEL_URL; else process.env.JARVIS_LOCAL_MODEL_URL = originalUrl;
+  }
+});
+
 test("automatically tries compatible fallback models after HTTP 400", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
