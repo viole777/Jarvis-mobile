@@ -222,11 +222,13 @@ async function jarvisGitHubChatAction(message, env) {
       sha: baseRef.data.object.sha
     });
     if (!createdBranch.ok) return { response: "Não consegui criar uma branch isolada: " + clean(createdBranch.data?.message || ("HTTP " + createdBranch.status), 250) + ". A branch principal não foi alterada.", action: "github_edit_branch_failed" };
+    const branchFile = await githubRequest(env, apiPath + "?ref=" + encodeURIComponent(branch));
+    if (!branchFile.ok || !branchFile.data?.sha) return { response: "A branch " + branch + " foi criada, mas não consegui ler a versão do arquivo nela; nenhuma gravação foi feita.", action: "github_edit_branch_file_read_failed" };
     const encoded = btoa(Array.from(new TextEncoder().encode(newContent), byte => String.fromCharCode(byte)).join(""));
     const updated = await githubRequest(env, apiPath, "PUT", {
       message: "Jarvis: update " + path,
       content: encoded,
-      sha: current.data.sha,
+      sha: branchFile.data.sha,
       branch
     });
     if (!updated.ok) return { response: "A branch " + branch + " foi criada, mas a gravação falhou: " + clean(updated.data?.message || ("HTTP " + updated.status), 250) + ". A branch principal não foi alterada.", action: "github_edit_failed" };
