@@ -743,14 +743,20 @@ async function handle(request, env) {
     })];
     const estimatedInputTokens = estimateTokens(JSON.stringify(modelMessages));
     const routing = await chooseModel(taskText, env, env.DB, estimatedInputTokens, 900);
+    const external = await jarvisCallExternalProvider(modelMessages, [], 900, env, true);
     let usedModel = routing.model;
     let answer;
-    try { answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 }); }
-    catch (error) {
-      if (usedModel === MODEL_FAST) throw error;
-      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
-      usedModel = MODEL_FAST;
-      answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 });
+    if (external.provider) {
+      answer = external.result;
+      usedModel = external.provider + "/" + external.model;
+    } else {
+      try { answer = await env.AI.run(usedModel, { messages: modelMessages, max_tokens: 900, temperature: 0.15 }); }
+      catch (error) {
+        if (usedModel === MODEL_FAST) throw error;
+        await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+        usedModel = MODEL_FAST;
+        answer = await env.AI.run(MODEL_FAST, { messages: modelMessages, max_tokens: 900, temperature: 0.15 });
+      }
     }
     const raw = clean(answer?.response || answer?.choices?.[0]?.message?.content, 8000);
     if (!raw) {
