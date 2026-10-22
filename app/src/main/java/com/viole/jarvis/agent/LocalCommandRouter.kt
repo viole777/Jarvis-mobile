@@ -44,6 +44,7 @@ class LocalCommandRouter(
             is ToolExecutionResult.Success -> AgentRunResult.Completed(result.output)
             is ToolExecutionResult.Error -> AgentRunResult.Failed(result.message)
             is ToolExecutionResult.ConfirmationRequired -> AgentRunResult.Failed("A ação requer confirmação pelo fluxo normal do Jarvis.")
+            null -> null
         }
     }
 
