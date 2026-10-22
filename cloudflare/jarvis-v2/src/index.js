@@ -417,11 +417,17 @@ async function handle(request, env) {
       if (payload.confirmed !== true) return reply({ error: "Confirmação necessária: envie confirmed=true para gravar arquivo no GitHub." }, 428);
       const repo = clean(payload.repo, 200), path = clean(payload.path, 500), content = typeof payload.content === "string" ? payload.content : "";
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !path || path.startsWith("/") || path.split("/").includes("..") || content.length > 500000) return reply({ error: "repo/path/conteúdo inválido." }, 400);
+      const repoInfo = await githubRequest(env, "/repos/" + repo.split("/").map(encodeURIComponent).join("/"));
+      if (!repoInfo.ok || !repoInfo.data?.default_branch) return reply({ error: "Não foi possível identificar a branch padrão; nenhuma alteração foi gravada." }, 502);
+      const targetBranch = clean(payload.branch, 200);
+      if (!targetBranch || targetBranch === repoInfo.data.default_branch) return reply({ error: "Gravação direta na branch padrão bloqueada. Crie uma branch de trabalho, grave nela e abra um pull request para revisão." }, 409);
+      if (!/^[A-Za-z0-9._/-]{1,200}$/.test(targetBranch) || targetBranch.startsWith("/") || targetBranch.includes("..")) return reply({ error: "Nome de branch inválido." }, 400);
       const encoded = btoa(unescape(encodeURIComponent(content)));
-      const current = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"));
-      const body = { message: clean(payload.message || "Update via Jarvis", 200), content: encoded, branch: clean(payload.branch, 200) || undefined, ...(current.ok && current.data.sha ? { sha: current.data.sha } : {}) };
-      const result = await githubRequest(env, "/repos/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/"), "PUT", body);
-      return reply({ ok: result.ok, status: result.status, commit: result.ok ? { sha:result.data.commit?.sha, html_url:result.data.commit?.html_url } : undefined, error: result.ok ? undefined : result.data.message }, result.ok ? 200 : result.status);
+      const filePath = "/repos/" + repo.split("/").map(encodeURIComponent).join("/") + "/contents/" + path.split("/").map(encodeURIComponent).join("/");
+      const current = await githubRequest(env, filePath + "?ref=" + encodeURIComponent(targetBranch));
+      const body = { message: clean(payload.message || "Update via Jarvis", 200), content: encoded, branch: targetBranch, ...(current.ok && current.data.sha ? { sha: current.data.sha } : {}) };
+      const result = await githubRequest(env, filePath, "PUT", body);
+      return reply({ ok: result.ok, status: result.status, branch: targetBranch, commit: result.ok ? { sha:result.data.commit?.sha, html_url:result.data.commit?.html_url } : undefined, error: result.ok ? undefined : result.data.message }, result.ok ? 200 : result.status);
     }
     if (parts.length === 3 && parts[2] === "pulls" && method === "POST") {
       const payload = await request.json().catch(() => ({}));
