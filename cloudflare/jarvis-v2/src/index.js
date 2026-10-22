@@ -98,7 +98,30 @@ async function ensureSchema(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_pulses (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS jarvis_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending', due_at TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), completed_at TEXT)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS jarvis_devices (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, label TEXT NOT NULL DEFAULT 'Android', active INTEGER NOT NULL DEFAULT 1, last_seen TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS jarvis_device_commands (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), completed_at TEXT)"),
   ]);
+}
+function modelText(result) {
+  const candidates = [
+    result?.response,
+    result?.choices?.[0]?.message?.content,
+    result?.content,
+    result?.result?.response,
+    result?.generated_text,
+    result?.output_text,
+    result?.message?.content,
+    Array.isArray(result?.output) ? result.output.map(item => item?.content).flat().map(item => typeof item === "string" ? item : item?.text).filter(Boolean).join("\\n") : ""
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (Array.isArray(candidate)) {
+      const joined = candidate.map(item => typeof item === "string" ? item : item?.text).filter(Boolean).join("\\n");
+      if (joined.trim()) return joined.trim();
+    }
+  }
+  return "";
 }
 function authorized(request, env) {
   // Prefer a Cloudflare Secret binding; keep the legacy variable only for migration.
@@ -262,6 +285,7 @@ async function handle(request, env) {
     return reply({ ok: true, service: "Jarvis V2 Cloud", authRequired: true, model: MODEL, persistentMemory: Boolean(env.DB), scheduledAgent: true });
   }
   if ((url.pathname === "/" || url.pathname === "/app") && request.method === "GET") return new Response(APP_HTML, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  if (url.pathname === "/favicon.ico" && request.method === "GET") return new Response(null, { status: 204, headers: { "Cache-Control": "public, max-age=86400" } });
   if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
     const internalSecret = clean(env.HERMES_MODEL_PROXY_SECRET, 300);
     if (!internalSecret) return reply({ error: "Proxy interno Hermes não configurado." }, 503);
@@ -294,7 +318,7 @@ async function handle(request, env) {
       usedModel = MODEL_FAST;
       result = await env.AI.run(usedModel, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
     }
-    const content = clean(result?.response || result?.choices?.[0]?.message?.content || result?.content, 12000);
+    const content = clean(modelText(result), 12000);
     const nativeCalls = Array.isArray(result?.tool_calls) ? result.tool_calls : Array.isArray(result?.toolCalls) ? result.toolCalls : result?.choices?.[0]?.message?.tool_calls || [];
     const toolCalls = nativeCalls.slice(0, 8).map((call, i) => ({
       id: clean(call?.id, 160) || "call_" + (i + 1),
@@ -318,9 +342,72 @@ async function handle(request, env) {
     });
   }
 
+  // Device polling uses a dedicated per-device credential, never the master Jarvis token.
+  if (url.pathname.startsWith("/v2/device/") && url.pathname !== "/v2/device/commands") {
+    if (!env.DB) return reply({ error: "Binding DB não configurado." }, 503);
+    await ensureSchema(env.DB);
+    const deviceAuth = request.headers.get("Authorization") || "";
+    const deviceToken = deviceAuth.startsWith("Bearer ") ? deviceAuth.slice(7) : "";
+    const tokenHash = async value => {
+      const bytes = new TextEncoder().encode(value);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+    };
+    if (url.pathname === "/v2/device/register" && request.method === "POST") {
+      if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
+      const body = await request.json().catch(() => ({}));
+      const label = clean(body.label || "Android", 60);
+      const id = crypto.randomUUID();
+      const token = "jdev_" + crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+      await env.DB.prepare("INSERT INTO jarvis_devices(id,token_hash,label,active) VALUES(?,?,?,1)").bind(id, await tokenHash(token), label || "Android").run();
+      return reply({ ok: true, deviceId: id, deviceToken: token, warning: "Guarde este token com segurança; ele só é mostrado nesta resposta." }, 201);
+    }
+    if (url.pathname === "/v2/device/status" && request.method === "GET") {
+      if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
+      const rows = await env.DB.prepare("SELECT id,label,active,last_seen,created_at FROM jarvis_devices ORDER BY created_at DESC LIMIT 20").all();
+      return reply({ ok: true, devices: rows.results || [] });
+    }
+    if (!deviceToken) return reply({ error: "Credencial do dispositivo obrigatória." }, 401);
+    const device = await env.DB.prepare("SELECT id,active FROM jarvis_devices WHERE token_hash=? LIMIT 1").bind(await tokenHash(deviceToken)).first();
+    if (!device || Number(device.active) !== 1) return reply({ error: "Dispositivo não autorizado." }, 401);
+    await env.DB.prepare("UPDATE jarvis_devices SET last_seen=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(device.id).run();
+    if (url.pathname === "/v2/device/poll" && request.method === "GET") {
+      const now = new Date().toISOString();
+      const row = await env.DB.prepare("SELECT id,action,payload,expires_at FROM jarvis_device_commands WHERE device_id=? AND status='pending' AND expires_at>? ORDER BY created_at ASC LIMIT 1").bind(device.id, now).first();
+      if (!row) return reply({ ok: true, command: null });
+      const claim = await env.DB.prepare("UPDATE jarvis_device_commands SET status='claimed' WHERE id=? AND status='pending'").bind(row.id).run();
+      if (!claim.meta?.changes) return reply({ ok: true, command: null });
+      return reply({ ok: true, command: { id: row.id, action: row.action, payload: JSON.parse(row.payload), expiresAt: row.expires_at } });
+    }
+    if (url.pathname === "/v2/device/result" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const id = clean(body.id, 80), status = body.success === true ? "completed" : "failed";
+      const result = clean(body.result || "", 1000);
+      if (!id) return reply({ error: "id obrigatório." }, 400);
+      const updated = await env.DB.prepare("UPDATE jarvis_device_commands SET status=?,result=?,completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND device_id=? AND status='claimed'").bind(status, result, id, device.id).run();
+      if (!updated.meta?.changes) return reply({ error: "Comando não encontrado ou já finalizado." }, 404);
+      return reply({ ok: true, id, status });
+    }
+    return reply({ error: "Rota de dispositivo não encontrada." }, 404);
+  }
+
   if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
   if (!env.DB || !env.AI) return reply({ error: "Bindings DB/AI não configurados." }, 503);
   await ensureSchema(env.DB);
+
+  if (url.pathname === "/v2/device/commands" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const deviceId = clean(body.deviceId, 80);
+    const action = clean(body.action, 40);
+    const packageName = clean(body.packageName, 180);
+    if (!deviceId || action !== "open_app" || !/^[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+$/.test(packageName)) return reply({ error: "Use deviceId, action=open_app e packageName válido." }, 400);
+    const device = await env.DB.prepare("SELECT id FROM jarvis_devices WHERE id=? AND active=1").bind(deviceId).first();
+    if (!device) return reply({ error: "Dispositivo não encontrado ou desativado." }, 404);
+    const id = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await env.DB.prepare("INSERT INTO jarvis_device_commands(id,device_id,action,payload,expires_at) VALUES(?,?,?,?,?)").bind(id, deviceId, action, JSON.stringify({ packageName }), expiresAt).run();
+    return reply({ ok: true, id, status: "pending", expiresAt }, 201);
+  }
 
   if (url.pathname === "/mcp" && request.method === "POST") {
     const rpc = await request.json().catch(() => null);
@@ -507,7 +594,7 @@ async function handle(request, env) {
       usedModel = MODEL_FAST;
       result = await env.AI.run(MODEL_FAST, { messages: prompt, max_tokens: 900, temperature: 0.2 });
     }
-    const raw = clean(result?.response || result?.choices?.[0]?.message?.content, 8000);
+    const raw = clean(modelText(result), 8000);
     const jsonText = raw.replace(/^\s*```(?:json)?/i, "").replace(/```\s*$/i, "").trim();
     let parsed;
     try { parsed = JSON.parse(jsonText); } catch {
@@ -715,7 +802,7 @@ async function handle(request, env) {
       usedModel = MODEL_FAST;
       answer = await env.AI.run(MODEL_FAST, { messages, max_tokens: 700, temperature: 0.55 });
     }
-    const text = clean(answer?.response || answer?.choices?.[0]?.message?.content, 6000);
+    const text = clean(modelText(answer), 6000);
     if (!text) {
       if (usedModel === MODEL_COMPLEX) await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
       return reply({ error: "O modelo não retornou uma resposta utilizável." }, 502);
