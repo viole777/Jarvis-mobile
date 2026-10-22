@@ -321,7 +321,7 @@ async function handle(request, env) {
   }
 
   // Device polling uses a dedicated per-device credential, never the master Jarvis token.
-  if (url.pathname.startsWith("/v2/device/")) {
+  if (url.pathname.startsWith("/v2/device/") && url.pathname !== "/v2/device/commands") {
     if (!env.DB) return reply({ error: "Binding DB não configurado." }, 503);
     await ensureSchema(env.DB);
     const deviceAuth = request.headers.get("Authorization") || "";
