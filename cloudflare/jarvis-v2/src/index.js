@@ -24,6 +24,54 @@ async function settleComplexBudget(db, key, reservedTokens, actualTokens) {
     "UPDATE jarvis_state SET value=CAST(MAX(0,CAST(value AS INTEGER)+?) AS TEXT), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE key=?"
   ).bind(delta, key).run();
 }
+
+async function jarvisCallExternalProvider(messages, tools, maxTokens, env, preferComplex = false) {
+  const providers = [
+    { name: "gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-2.5-flash" },
+    { name: "groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "llama-3.3-70b-versatile" },
+    { name: "openrouter", key: env.OPENROUTER_API_KEY, url: "https://openrouter.ai/api/v1/chat/completions", model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free" },
+    { name: "nvidia", key: env.NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct" }
+  ].filter(p => typeof p.key === "string" && p.key.trim());
+  const order = preferComplex ? ["gemini", "nvidia", "groq", "openrouter"] : ["groq", "gemini", "nvidia", "openrouter"];
+  providers.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const failures = [];
+  for (const provider of providers) {
+    try {
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + provider.key.trim(),
+          "Content-Type": "application/json",
+          ...(provider.name === "openrouter" ? { "HTTP-Referer": "https://jarvis-v2-cloud.viole-jarvis.workers.dev", "X-Title": "Jarvis" } : {})
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          messages,
+          ...(tools.length ? { tools, tool_choice: "auto" } : {}),
+          max_tokens: maxTokens,
+          temperature: 0.2
+        }),
+        signal: AbortSignal.timeout(25000)
+      });
+      if (!response.ok) {
+        failures.push(provider.name + ":" + response.status);
+        continue;
+      }
+      const data = await response.json();
+      const message = data?.choices?.[0]?.message;
+      if (!message) { failures.push(provider.name + ":empty_response"); continue; }
+      return {
+        provider: provider.name,
+        model: provider.model,
+        result: { response: typeof message.content === "string" ? message.content : "", choices: [{ message }], tool_calls: Array.isArray(message.tool_calls) ? message.tool_calls : [] }
+      };
+    } catch (error) {
+      failures.push(provider.name + ":" + clean(error?.message || "request_failed", 100));
+    }
+  }
+  return { provider: null, model: null, failures };
+}
+
 async function chooseModel(message, env, db, promptTokens, maxOutputTokens = 700) {
   const enabled = String(env.JARVIS_COMPLEX_MODEL_ENABLED ?? "true").toLowerCase() !== "false";
   if (!enabled || !isComplexRequest(message)) return { model: MODEL_FAST, reason: "fast_default", budgetRemaining: null, reservedTokens: 0, budgetKey: null };
@@ -346,15 +394,20 @@ async function handle(request, env) {
     const requestedMax = Number(payload.max_tokens ?? payload.max_completion_tokens ?? 900);
     const maxTokens = Math.max(128, Math.min(1600, Number.isFinite(requestedMax) ? Math.floor(requestedMax) : 900));
     const routing = await chooseModel(userPrompt, env, env.DB, promptTokens, maxTokens);
-    let usedModel = routing.model;
+    const external = await jarvisCallExternalProvider(messages, tools, maxTokens, env, isComplexRequest(userPrompt));
+    let usedModel = external.provider ? external.provider + "/" + external.model : routing.model;
     let result;
-    try {
-      result = await env.AI.run(usedModel, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
-    } catch (error) {
-      if (usedModel === MODEL_FAST) throw error;
-      await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
-      usedModel = MODEL_FAST;
-      result = await env.AI.run(usedModel, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
+    if (external.provider) {
+      result = external.result;
+    } else {
+      try {
+        result = await env.AI.run(routing.model, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
+      } catch (error) {
+        if (routing.model === MODEL_FAST) throw error;
+        await settleComplexBudget(env.DB, routing.budgetKey, routing.reservedTokens, 0);
+        usedModel = MODEL_FAST;
+        result = await env.AI.run(MODEL_FAST, { messages, ...(tools.length ? { tools } : {}), max_tokens: maxTokens, temperature: 0.2 });
+      }
     }
     const content = clean(result?.response || result?.choices?.[0]?.message?.content || result?.content, 12000);
     const nativeCalls = Array.isArray(result?.tool_calls) ? result.tool_calls : Array.isArray(result?.toolCalls) ? result.toolCalls : result?.choices?.[0]?.message?.tool_calls || [];
