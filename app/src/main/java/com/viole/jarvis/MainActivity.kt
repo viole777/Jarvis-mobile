@@ -326,7 +326,7 @@ private fun JarvisScreen(
                     Text("COMANDO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                     OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("O que devo fazer?") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     Button(
-                        enabled = command.isNotBlank() && !busy && JarvisAccessibilityService.instance != null,
+                        enabled = command.isNotBlank() && !busy,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             busy = true
@@ -356,7 +356,8 @@ private fun JarvisScreen(
                         label = { Text("Seu token de acesso") },
                         placeholder = { Text("Cole o token do Jarvis") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
                     )
                     Button(
                         onClick = {
