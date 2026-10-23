@@ -588,6 +588,36 @@ async function handle(request, env) {
     if (!env.GITHUB_TOKEN) return reply({ ok: false, error: "Integração GitHub ainda não configurada. Adicione GITHUB_TOKEN como Secret na Cloudflare." }, 503);
     const parts = url.pathname.split("/").filter(Boolean);
     const method = request.method;
+    if (parts.length === 3 && parts[2] === "diagnostics" && method === "GET") {
+      const identity = await githubRequest(env, "/user");
+      if (!identity.ok) {
+        return reply({
+          ok: false,
+          secretName: "GITHUB_TOKEN",
+          githubAuthenticated: false,
+          status: identity.status,
+          error: clean(identity.data?.message || "GitHub rejeitou o token.", 250),
+          guidance: identity.status === 401
+            ? "O segredo existe, mas o valor pode estar inválido, expirado ou revogado. Gere um token válido e atualize o Secret GITHUB_TOKEN."
+            : "Confira o token e as permissões da integração GitHub."
+        });
+      }
+      const targetRepo = await githubRequest(env, "/repos/viole777/Jarvis-mobile");
+      const permissions = targetRepo.ok ? (targetRepo.data?.permissions || {}) : {};
+      return reply({
+        ok: true,
+        secretName: "GITHUB_TOKEN",
+        githubAuthenticated: true,
+        login: clean(identity.data?.login || "", 100),
+        targetRepository: "viole777/Jarvis-mobile",
+        targetRepositoryAccessible: targetRepo.ok,
+        canPushToTargetRepository: permissions.push === true,
+        repositoryStatus: targetRepo.status,
+        guidance: permissions.push === true
+          ? "O token está autenticado e tem permissão de escrita neste repositório. Se a edição falhar, investigue o formato do comando, a rota e as permissões do repositório de destino."
+          : "O token autentica, mas não tem permissão de escrita comprovada neste repositório. Verifique acesso ao repositório e permissão Contents: Read and write no token fine-grained, ou escopo repo em token classic."
+      });
+    }
     if (parts.length === 3 && parts[2] === "repos" && method === "GET") {
       const page = Math.max(1, Math.min(10, Number(url.searchParams.get("page") || 1)));
       const result = await githubRequest(env, "/user/repos?sort=updated&per_page=100&page=" + page);
