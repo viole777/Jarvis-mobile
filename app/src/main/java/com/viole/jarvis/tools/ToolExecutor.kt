@@ -1,15 +1,21 @@
 package com.viole.jarvis.tools
 
+/**
+ * Minimal execution gate for Android tools.
+ *
+ * Speech-to-text transcription is not speaker authentication, so consequential
+ * actions still require an explicit confirmation. Routine navigation and read
+ * operations remain direct.
+ */
 class ToolExecutor(
-    private val registry: AndroidToolRegistry,
-    private val safetyEngine: SafetyEngine = SafetyEngine()
+    private val registry: AndroidToolRegistry
 ) {
     suspend fun execute(
         toolName: String,
         arguments: Map<String, Any?>
     ): ToolExecutionResult {
         val tool = registry.get(toolName)
-            ?: return ToolExecutionResult.Error("Unknown tool: " + toolName)
+            ?: return ToolExecutionResult.Error("Ferramenta desconhecida: " + toolName)
 
         val missing = tool.parameters
             .filter { it.required && arguments[it.name] == null }
@@ -17,29 +23,20 @@ class ToolExecutor(
 
         if (missing.isNotEmpty()) {
             return ToolExecutionResult.Error(
-                "Missing required parameters: " + missing.joinToString(", ")
+                "Parâmetros obrigatórios ausentes: " + missing.joinToString(", ")
             )
         }
 
-        val policy = safetyEngine.evaluate(tool, arguments)
-        if (!policy.allowed) {
-            return ToolExecutionResult.Error(
-                policy.reason ?: "Ação bloqueada pela Safety Engine."
-            )
-        }
-
-        val heuristic = safetyEngine.evaluateSensitiveTextAction(toolName, arguments)
-        if (heuristic.requiresConfirmation) {
+        val sensitiveClick = isSensitiveTextAction(toolName, arguments)
+        val highRisk = tool.riskLevel == RiskLevel.HIGH
+        if (sensitiveClick || highRisk) {
+            val reason = if (sensitiveClick) {
+                "A interface indica uma ação sensível (enviar, pagar, comprar ou excluir)."
+            } else {
+                tool.confirmationReason(arguments)
+            }
             return ToolExecutionResult.ConfirmationRequired(
-                reason = heuristic.reason ?: "Confirmação necessária.",
-                toolName = toolName,
-                arguments = arguments
-            )
-        }
-
-        if (policy.requiresConfirmation) {
-            return ToolExecutionResult.ConfirmationRequired(
-                reason = policy.reason ?: "Confirmação necessária.",
+                reason = reason,
                 toolName = toolName,
                 arguments = arguments
             )
@@ -53,8 +50,36 @@ class ToolExecutor(
         arguments: Map<String, Any?>
     ): ToolExecutionResult {
         val tool = registry.get(toolName)
-            ?: return ToolExecutionResult.Error("Unknown tool: " + toolName)
+            ?: return ToolExecutionResult.Error("Ferramenta desconhecida: " + toolName)
+
+        val missing = tool.parameters
+            .filter { it.required && arguments[it.name] == null }
+            .map { it.name }
+
+        if (missing.isNotEmpty()) {
+            return ToolExecutionResult.Error(
+                "Parâmetros obrigatórios ausentes: " + missing.joinToString(", ")
+            )
+        }
 
         return tool.execute(arguments)
+    }
+
+    private fun isSensitiveTextAction(
+        toolName: String,
+        arguments: Map<String, Any?>
+    ): Boolean {
+        if (toolName != "click") return false
+
+        val target = listOf(
+            arguments["text"],
+            arguments["contentDescription"]
+        ).filterIsInstance<String>().joinToString(" ").lowercase()
+
+        val sensitiveWords = listOf(
+            "comprar", "finalizar compra", "pagar", "enviar",
+            "excluir", "apagar", "remover", "confirmar pedido"
+        )
+        return sensitiveWords.any(target::contains)
     }
 }
