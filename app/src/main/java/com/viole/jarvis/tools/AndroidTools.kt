@@ -9,6 +9,9 @@ import org.json.JSONObject
 import com.viole.jarvis.accessibility.JarvisAccessibilityService
 
 object AndroidTools {
+    @Volatile private var lastOpenedPackage: String = ""
+    @Volatile private var lastOpenedAt: Long = 0L
+
     fun readScreen(): List<String> {
         val root = JarvisAccessibilityService.instance?.activeRoot() ?: return emptyList()
         return buildList { collectNodes(root, this) }
@@ -55,11 +58,19 @@ object AndroidTools {
         }
     }
 
+    @Synchronized
     fun openApp(context: Context, packageName: String): Result<Unit> = runCatching {
+        val now = android.os.SystemClock.elapsedRealtime()
+        // Voice recognition can emit the same phrase twice. Do not relaunch the same app repeatedly.
+        if (packageName == lastOpenedPackage && now - lastOpenedAt < 4_000L) {
+            return@runCatching
+        }
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: error("Aplicativo não encontrado: \$packageName")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
+        lastOpenedPackage = packageName
+        lastOpenedAt = now
     }
 
     fun click(text: String? = null, contentDescription: String? = null, resourceId: String? = null): Result<Unit> {
