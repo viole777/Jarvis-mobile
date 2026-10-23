@@ -26,7 +26,7 @@ async function settleComplexBudget(db, key, reservedTokens, actualTokens) {
 }
 
 async function jarvisCallExternalProvider(messages, tools, maxTokens, env, preferComplex = false) {
-  const freeLlmBase = clean(env.FREELLMAPI_BASE_URL || "", 500).replace(/\\/+$/, "");
+  const freeLlmBase = clean(env.FREELLMAPI_BASE_URL || "", 500).replace(/\/+$/, "");
   const providers = [
     ...(freeLlmBase && env.FREELLMAPI_API_KEY ? [{
       name: "freellmapi",
