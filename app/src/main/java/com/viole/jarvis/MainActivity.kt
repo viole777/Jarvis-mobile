@@ -266,6 +266,9 @@ private fun JarvisScreen(
     onSaveClawBridge: (String, String) -> Unit,
     onTestClawBridge: (String, String, (String) -> Unit) -> Unit,
     onReadClawScreen: (String, String, (String) -> Unit) -> Unit,
+    onFetchClawCommand: (String, String, (QueuedClawCommand?, String) -> Unit) -> Unit,
+    onExecuteClawCommand: (QueuedClawCommand, String, String, (String) -> Unit) -> Unit,
+    onRejectClawCommand: (QueuedClawCommand, String, String, (String) -> Unit) -> Unit,
     onRunAgent: (String, (AgentRunResult) -> Unit) -> Unit,
     onConfirm: (Boolean, (AgentRunResult) -> Unit) -> Unit
 ) {
@@ -276,6 +279,7 @@ private fun JarvisScreen(
     var clawToken by remember { mutableStateOf(initialClawToken) }
     var clawStatus by remember { mutableStateOf("Ponte Claw Use ainda não testada.") }
     var clawTesting by remember { mutableStateOf(false) }
+    var pendingClawCommand by remember { mutableStateOf<QueuedClawCommand?>(null) }
     var response by remember { mutableStateOf("Pronto para receber ordens.") }
     var screenText by remember { mutableStateOf("Nenhuma leitura realizada.") }
     var status by remember { mutableStateOf("Sistema em espera.") }
