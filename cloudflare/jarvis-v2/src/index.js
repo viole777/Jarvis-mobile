@@ -163,6 +163,12 @@ function authorized(request, env) {
   if (!expected) return false;
   return request.headers.get("Authorization") === `Bearer ${expected}`;
 }
+function authorizedClawBridge(request, env) {
+  // The Android executor uses a separate bridge credential, never the Jarvis UI token.
+  const expected = clean(env.CLAW_USE_BRIDGE_TOKEN_SECRET || env.CLAW_USE_BRIDGE_TOKEN, 300);
+  if (!expected) return false;
+  return request.headers.get("X-Bridge-Token") === expected;
+}
 async function state(db, key, fallback = "") {
   const row = await db.prepare("SELECT value FROM jarvis_state WHERE key = ?").bind(key).first();
   return row?.value ?? fallback;
@@ -444,13 +450,29 @@ async function handle(request, env) {
     });
   }
 
-  if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
+  const clawExecutorRoute =
+    (url.pathname === "/v2/claw/commands/next" && request.method === "GET") ||
+    (url.pathname.startsWith("/v2/claw/commands/") && url.pathname.endsWith("/result") && request.method === "POST");
+  if (clawExecutorRoute ? !authorizedClawBridge(request, env) : !authorized(request, env)) {
+    return reply({ error: "Não autorizado." }, 401);
+  }
   if (url.pathname.startsWith("/v2/claw/")) {
     if (!env.DB) return reply({ error: "Binding DB não configurado." }, 503);
     await ensureSchema(env.DB);
   }
 
-  // Authenticated queue for the on-device Claw Use executor. The bridge token stays on Android.
+  // Read-only diagnostics for the authenticated Jarvis UI; this does not imply a device is online.
+  if (url.pathname === "/v2/claw/status" && request.method === "GET") {
+    const rows = await env.DB.prepare(
+      "SELECT status, COUNT(*) AS count FROM jarvis_claw_commands WHERE device_id=? GROUP BY status"
+    ).bind(clean(url.searchParams.get("deviceId") || "primary", 80) || "primary").all();
+    const counts = { pending: 0, leased: 0, completed: 0, failed: 0 };
+    for (const row of rows.results || []) if (Object.hasOwn(counts, row.status)) counts[row.status] = Number(row.count) || 0;
+    return reply({ ok: true, deviceId: clean(url.searchParams.get("deviceId") || "primary", 80) || "primary", bridgeCredentialConfigured: !!clean(env.CLAW_USE_BRIDGE_TOKEN_SECRET || env.CLAW_USE_BRIDGE_TOKEN, 300), deviceOnline: null, deviceOnlineNote: "A presença do dispositivo só pode ser confirmada pelo executor Android.", counts });
+  }
+
+  // Jarvis UI queues an action only after explicit user approval.
+  // The Android executor authenticates separately with X-Bridge-Token.
   if (url.pathname === "/v2/claw/commands" && request.method === "POST") {
     const payload = await request.json().catch(() => ({}));
     const action = payload.action && typeof payload.action === "object" && !Array.isArray(payload.action) ? payload.action : null;
