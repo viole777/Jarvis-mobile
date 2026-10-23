@@ -177,7 +177,10 @@ class MainActivity : ComponentActivity() {
                         runOnUiThread { callback(result) }
                     }.start()
                 },
-                onRunAgent = { input, onResult -> lifecycleScope.launch {\n                    val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)\n                    onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))\n                } },
+                onRunAgent = { input, onResult -> lifecycleScope.launch {
+                    val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)
+                    onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))
+                } },
                 onConfirm = { approved, onResult -> lifecycleScope.launch { onResult(agent.confirmPending(approved)) } }
             )
         }
