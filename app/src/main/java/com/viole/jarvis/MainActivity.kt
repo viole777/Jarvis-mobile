@@ -360,6 +360,43 @@ private fun JarvisScreen(
     }
 
     MaterialTheme {
+        pendingClawCommand?.let { queued ->
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Autorizar ação Claw Use?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Revise a ação antes de permitir que ela controle o celular.")
+                        Text(queued.safePreview(), color = Muted, style = MaterialTheme.typography.bodySmall)
+                        if (!queued.serverMarkedApproved) Text("A ação não está aprovada no servidor e não pode ser executada.", color = Color(0xFFFF8B8B))
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = queued.serverMarkedApproved,
+                        onClick = {
+                            pendingClawCommand = null
+                            clawTesting = true
+                            clawStatus = "Executando ação autorizada..."
+                            onExecuteClawCommand(queued, clawUrl, clawToken) { result ->
+                                clawStatus = result
+                                clawTesting = false
+                            }
+                        }
+                    ) { Text("Autorizar e executar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        pendingClawCommand = null
+                        clawTesting = true
+                        onRejectClawCommand(queued, clawUrl, clawToken) { result ->
+                            clawStatus = result
+                            clawTesting = false
+                        }
+                    }) { Text("Recusar") }
+                }
+            )
+        }
         Surface(Modifier.fillMaxSize(), color = Ink) {
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
