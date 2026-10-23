@@ -455,14 +455,22 @@ async function handle(request, env) {
     const payload = await request.json().catch(() => ({}));
     const action = payload.action && typeof payload.action === "object" && !Array.isArray(payload.action) ? payload.action : null;
     const allowed = ["click","tap","type","swipe","scroll","back","home","recents","launch","longpress"];
-    if (!action || !allowed.includes(clean(action.action, 24))) return reply({ error: "Ação Claw Use ausente ou não permitida." }, 400);
-    const normalized = { action: clean(action.action, 24) };
-    for (const key of ["x","y","x2","y2","duration","text","packageName","direction","query"]) {
+    if (!action || Object.keys(action).length < 1 || Object.keys(action).length > 5 || Object.keys(action).some(key => !allowed.includes(key))) return reply({ error: "Ação Claw Use ausente ou não permitida." }, 400);
+    const normalized = {};
+    for (const key of Object.keys(action)) {
       const value = action[key];
-      if (typeof value === "string") normalized[key] = value.slice(0, key === "text" ? 1000 : 200);
+      if (typeof value === "string") normalized[key] = value.slice(0, key === "type" ? 1000 : 200);
       else if (typeof value === "number" && Number.isFinite(value)) normalized[key] = Math.max(-100000, Math.min(100000, value));
       else if (typeof value === "boolean") normalized[key] = value;
+      else if (value && typeof value === "object" && !Array.isArray(value) && ["tap","type"].includes(key)) {
+        const inner = {};
+        for (const [innerKey, innerValue] of Object.entries(value)) {
+          if (["x","y","ref","text","desc","id"].includes(innerKey) && (typeof innerValue === "string" || (typeof innerValue === "number" && Number.isFinite(innerValue)))) inner[innerKey] = typeof innerValue === "string" ? innerValue.slice(0, 1000) : innerValue;
+        }
+        if (Object.keys(inner).length) normalized[key] = inner;
+      }
     }
+    if (!Object.keys(normalized).length) return reply({ error: "Ação vazia após validação." }, 400);
     const deviceId = clean(payload.deviceId || "primary", 80) || "primary";
     const inserted = await env.DB.prepare("INSERT INTO jarvis_claw_commands(device_id,action_json) VALUES(?,?)").bind(deviceId, JSON.stringify(normalized)).run();
     return reply({ ok: true, commandId: inserted.meta?.last_row_id, status: "pending", deviceId }, 202);
