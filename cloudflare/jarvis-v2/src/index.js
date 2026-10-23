@@ -109,7 +109,7 @@ function simulateAffect(message, attention) {
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Bridge-Token",
   "Cache-Control": "no-store",
 };
 function reply(data, status = 200) {
@@ -154,6 +154,7 @@ async function ensureSchema(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_pulses (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"),
     db.prepare("CREATE TABLE IF NOT EXISTS jarvis_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','completed','cancelled')), due_at TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), completed_at TEXT)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS jarvis_claw_commands (id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL DEFAULT 'primary', action_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','leased','completed','failed','cancelled')), result_json TEXT, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), leased_at TEXT, completed_at TEXT)"),
   ]);
 }
 function authorized(request, env) {
@@ -444,6 +445,47 @@ async function handle(request, env) {
   }
 
   if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
+
+  // Authenticated queue for the on-device Claw Use executor. The bridge token stays on Android.
+  if (url.pathname === "/v2/claw/commands" && request.method === "POST") {
+    const payload = await request.json().catch(() => ({}));
+    const action = payload.action && typeof payload.action === "object" && !Array.isArray(payload.action) ? payload.action : null;
+    const allowed = ["click","tap","type","swipe","scroll","back","home","recents","launch","longpress"];
+    if (!action || !allowed.includes(clean(action.action, 24))) return reply({ error: "Ação Claw Use ausente ou não permitida." }, 400);
+    const normalized = { action: clean(action.action, 24) };
+    for (const key of ["x","y","x2","y2","duration","text","packageName","direction","query"]) {
+      const value = action[key];
+      if (typeof value === "string") normalized[key] = value.slice(0, key === "text" ? 1000 : 200);
+      else if (typeof value === "number" && Number.isFinite(value)) normalized[key] = Math.max(-100000, Math.min(100000, value));
+      else if (typeof value === "boolean") normalized[key] = value;
+    }
+    const deviceId = clean(payload.deviceId || "primary", 80) || "primary";
+    const inserted = await env.DB.prepare("INSERT INTO jarvis_claw_commands(device_id,action_json) VALUES(?,?)").bind(deviceId, JSON.stringify(normalized)).run();
+    return reply({ ok: true, commandId: inserted.meta?.last_row_id, status: "pending", deviceId }, 202);
+  }
+  if (url.pathname === "/v2/claw/commands/next" && request.method === "GET") {
+    const deviceId = clean(url.searchParams.get("deviceId") || "primary", 80) || "primary";
+    await env.DB.prepare("UPDATE jarvis_claw_commands SET status='pending',leased_at=NULL WHERE status='leased' AND leased_at < datetime('now','-2 minutes') AND device_id=?").bind(deviceId).run();
+    const command = await env.DB.prepare("SELECT id,action_json,created_at FROM jarvis_claw_commands WHERE status='pending' AND device_id=? ORDER BY id ASC LIMIT 1").bind(deviceId).first();
+    if (!command) return reply({ ok: true, command: null });
+    const leased = await env.DB.prepare("UPDATE jarvis_claw_commands SET status='leased',leased_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='pending'").bind(command.id).run();
+    if (!leased.meta?.changes) return reply({ ok: true, command: null });
+    let action = {};
+    try { action = JSON.parse(command.action_json); } catch {}
+    return reply({ ok: true, command: { id: command.id, action, createdAt: command.created_at } });
+  }
+  if (url.pathname.startsWith("/v2/claw/commands/") && url.pathname.endsWith("/result") && request.method === "POST") {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const id = Number(parts[3]);
+    if (!Number.isSafeInteger(id) || id < 1 || parts.length !== 5) return reply({ error: "ID de comando inválido." }, 400);
+    const payload = await request.json().catch(() => ({}));
+    const status = payload.status === "completed" ? "completed" : payload.status === "failed" ? "failed" : null;
+    if (!status) return reply({ error: "status deve ser completed ou failed." }, 400);
+    const resultText = JSON.stringify({ summary: clean(payload.summary, 1000), error: clean(payload.error, 500) });
+    const changed = await env.DB.prepare("UPDATE jarvis_claw_commands SET status=?,result_json=?,completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='leased'").bind(status, resultText, id).run();
+    if (!changed.meta?.changes) return reply({ error: "Comando não encontrado ou não reservado." }, 404);
+    return reply({ ok: true, commandId: id, status });
+  }
   if (!env.DB || !env.AI) return reply({ error: "Bindings DB/AI não configurados." }, 503);
   await ensureSchema(env.DB);
 
