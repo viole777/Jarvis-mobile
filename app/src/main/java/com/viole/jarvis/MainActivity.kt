@@ -503,6 +503,18 @@ private fun JarvisScreen(
                     }, enabled = !clawTesting && clawUrl.isNotBlank() && clawToken.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                         Text(if (clawTesting) "Aguarde..." else "Ler tela pelo Claw Use")
                     }
+                    Button(onClick = {
+                        clawTesting = true
+                        clawStatus = "Consultando fila autenticada do Jarvis..."
+                        onFetchClawCommand(clawUrl, clawToken) { queued, result ->
+                            clawStatus = result
+                            pendingClawCommand = queued
+                            clawTesting = false
+                        }
+                    }, enabled = !clawTesting && clawUrl.isNotBlank() && clawToken.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (clawTesting) "Consultando..." else "Consultar comando pendente")
+                    }
+                    Text("A consulta não executa ações. Cada comando encontrado exige confirmação nesta tela.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text(clawStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text("O endereço da ponte e seu token são usados no próprio dispositivo; o token da ponte não é enviado ao Worker.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
