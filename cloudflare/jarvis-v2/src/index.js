@@ -294,6 +294,52 @@ async function jarvisDailyToolAction(message) {
   return null;
 }
 
+async function jarvisProviderDiagnostics(env) {
+  const freeLlmBase = clean(env.FREELLMAPI_BASE_URL || "", 500).replace(/\/+$/, "");
+  const providers = [
+    { name: "Gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-2.5-flash" },
+    { name: "Groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "llama-3.3-70b-versatile" },
+    { name: "OpenRouter", key: env.OPENROUTER_API_KEY, url: "https://openrouter.ai/api/v1/chat/completions", model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free" },
+    { name: "NVIDIA", key: env.NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct" },
+    ...(freeLlmBase && env.FREELLMAPI_API_KEY ? [{
+      name: "FreeLLMAPI", key: env.FREELLMAPI_API_KEY,
+      url: freeLlmBase.endsWith("/v1") ? freeLlmBase + "/chat/completions" : freeLlmBase + "/v1/chat/completions",
+      model: env.FREELLMAPI_MODEL || "auto:smart"
+    }] : [])
+  ];
+  return await Promise.all(providers.map(async provider => {
+    if (typeof provider.key !== "string" || !provider.key.trim()) {
+      return { provider: provider.name, configured: false, ok: false, status: "missing_secret" };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6500);
+    try {
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + provider.key.trim(),
+          "Content-Type": "application/json",
+          ...(provider.name === "OpenRouter" ? { "HTTP-Referer": "https://jarvis-v2-cloud.viole-jarvis.workers.dev", "X-Title": "Jarvis diagnostics" } : {})
+        },
+        body: JSON.stringify({ model: provider.model, messages: [{ role: "user", content: "Responda apenas OK." }], max_tokens: 5, temperature: 0 }),
+        signal: controller.signal
+      });
+      const payload = await response.json().catch(() => ({}));
+      return {
+        provider: provider.name, configured: true,
+        ok: response.ok && Boolean(payload?.choices?.[0]?.message?.content || payload?.response),
+        httpStatus: response.status,
+        status: response.ok ? "reachable" : response.status === 401 || response.status === 403 ? "invalid_key_or_permission" : response.status === 429 ? "quota_or_rate_limit" : "provider_error",
+        model: provider.model
+      };
+    } catch (error) {
+      return { provider: provider.name, configured: true, ok: false, status: error?.name === "AbortError" ? "timeout" : "network_error", model: provider.model };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+}
+
 async function jarvisGitHubChatAction(message, env) {
   const text = clean(message, 6000);
   if (!/(github|reposit[oó]rio|repo\b|pull request|\bpr\b|arquivo|commit)/i.test(text)) return null;
@@ -925,6 +971,21 @@ async function handle(request, env) {
     const payload = await request.json().catch(() => ({}));
     const message = clean(payload.message);
     if (!message) return reply({ error: "Envie uma mensagem." }, 400);
+    if (/(diagn[oó]stic|verificar|testar).{0,60}(provedor|chave|api|modelo)|(?:provedores|chaves de api).{0,40}(diagn[oó]stic|verificar|testar)/i.test(message)) {
+      const providers = await jarvisProviderDiagnostics(env);
+      const summary = providers.map(p => "- " + p.provider + ": " + (
+        p.status === "missing_secret" ? "não configurado" :
+        p.status === "reachable" ? "conectado (HTTP " + p.httpStatus + ")" :
+        p.status === "invalid_key_or_permission" ? "chave inválida ou sem permissão (HTTP " + p.httpStatus + ")" :
+        p.status === "quota_or_rate_limit" ? "cota ou limite de requisições (HTTP " + p.httpStatus + ")" :
+        p.status === "timeout" ? "tempo esgotado" :
+        p.status === "network_error" ? "erro de rede" :
+        "falha do provedor (HTTP " + (p.httpStatus || "—") + ")"
+      )).join("\\n");
+      await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("provider_diagnostics", JSON.stringify({ at: new Date().toISOString(), providers: providers.map(p => ({ provider: p.provider, status: p.status, httpStatus: p.httpStatus || null })) })).run();
+      return reply({ ok: true, response: "Diagnóstico dos provedores de IA:\\n" + summary, providers, model: "Jarvis Provider Diagnostics" });
+    }
+
     if (/^\s*\/tribunal\b|\btribunal\b|3-way review|risk-value-feasibility check|review this/i.test(message)) {
       const review = await jarvisTribunalReview(message, env);
       await env.DB.batch([
