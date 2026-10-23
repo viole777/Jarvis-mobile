@@ -12,19 +12,11 @@ Usuário -> AgentLoop -> modelo -> ferramenta -> resultado -> modelo -> próxima
 
 O modelo pode combinar open_app, read_screen, click, type_text, scroll e back para completar uma tarefa.
 
-## Fase 5 — Safety Engine
+## Execução de ferramentas
 
-Antes de uma ferramenta ser executada, o cliente aplica uma política local.
+A camada genérica Safety Engine foi removida. O agente executa navegação e tarefas comuns diretamente; ações irreversíveis (por exemplo, enviar, pagar, comprar ou excluir) ainda pedem confirmação local. O reconhecimento de fala transcreve o áudio, mas não prova sozinho a identidade de quem falou.
 
-- leitura e navegação simples podem ser automáticas;
-- inserção de texto exige confirmação explícita;
-- cliques com sinais de compra, pagamento, envio ou exclusão exigem confirmação;
-- uma ação recusada é devolvida ao modelo como recusada, em vez de ser executada;
-- a interface mostra a ferramenta e os argumentos antes da confirmação.
-
-A Safety Engine fica no Android, perto da execução real da ação. O backend não pode substituir essa confirmação.
-
-## Backend em nuvem sem chave de provedor no app\n\nO app Android agora usa por padrão o Worker Cloudflare do projeto (`https://jarvis-v2-cloud.viole-jarvis.workers.dev`), que executa modelos pelo binding nativo Workers AI; não é necessário colocar uma chave de OpenAI ou Anthropic no APK. O campo de autenticação ainda exige o token de acesso do Worker. O endpoint `/v1/agent` recebe o catálogo de ferramentas do Android e devolve um plano JSON; a execução continua no aparelho, com a Safety Engine e confirmação local.\n\nPara controlar outros apps, instale o APK, abra o Jarvis e ative manualmente o serviço de Acessibilidade nas configurações do Android. O Android pode limitar o serviço de microfone em segundo plano; o reconhecimento de voz requer permissões e pode variar conforme fabricante/versão.\n\n## Arquitetura
+## Backend em nuvem sem chave de provedor no app\n\nO app Android agora usa por padrão o Worker Cloudflare do projeto (`https://jarvis-v2-cloud.viole-jarvis.workers.dev`), que executa modelos pelo binding nativo Workers AI; não é necessário colocar uma chave de OpenAI ou Anthropic no APK. O campo de autenticação ainda exige o token de acesso do Worker. O endpoint `/v1/agent` recebe o catálogo de ferramentas do Android e devolve um plano JSON; a execução continua no aparelho, com confirmação local para ações irreversíveis.\n\nPara controlar outros apps, instale o APK, abra o Jarvis e ative manualmente o serviço de Acessibilidade nas configurações do Android. O Android pode limitar o serviço de microfone em segundo plano; o reconhecimento de voz requer permissões e pode variar conforme fabricante/versão.\n\n## Arquitetura
 
 Android UI
   -> AgentLoop
@@ -32,7 +24,7 @@ Android UI
   -> Backend
   -> Responses API
   -> Tool call
-  -> SafetyEngine
+  -> ToolExecutor (confirmação mínima para ações irreversíveis)
   -> AccessibilityService
   -> Tool result
   -> AgentLoop
@@ -59,7 +51,7 @@ A pasta `ml/` contém a primeira fundação da SLM especializada do Jarvis:
 - avaliação inicial;
 - contrato de saída JSON.
 
-Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para intenção, seleção de ferramentas e argumentos; a Safety Engine do Android continua sendo a autoridade final para execução.
+Baseline inicial: `Qwen/Qwen3-0.6B`. O objetivo é especializar o modelo para intenção, seleção de ferramentas e argumentos; a confirmação local continua sendo necessária para ações irreversíveis.
 
 
 ## Jarvis V1 — agente com LLM
@@ -70,7 +62,7 @@ A integração do modelo não significa que Skills externas do marketplace ou MC
 
 ## Jarvis Android (native)
 
-The Android client includes a Compose command center with a central animated core, configurable Cloudflare Worker endpoint, local bearer-token storage, voice activation ("Jarvis" or two claps), Android Accessibility-based screen inspection, app launch, click, text entry, scrolling and Back actions. Sensitive actions can be paused by the Safety Engine for explicit approval.
+The Android client includes a Compose command center with a central animated core, configurable Cloudflare Worker endpoint, local bearer-token storage, voice activation ("Jarvis" or two claps), Android Accessibility-based screen inspection, app launch, click, text entry, scrolling and Back actions. Irreversible actions can be paused by a lightweight local confirmation step.
 
 - Enable the Android Accessibility service in Settings before asking Jarvis to operate other apps.
 - Enable microphone permission and tap **Ativar voz contínua** to use wake-word mode. A foreground notification remains visible while listening; stop voice mode in the app when you do not want it listening.
