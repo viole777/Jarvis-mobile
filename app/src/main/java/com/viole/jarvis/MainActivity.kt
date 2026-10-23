@@ -350,7 +350,7 @@ private fun JarvisScreen(
             is AgentRunResult.Failed -> { response = result.message; status = "Execução interrompida."; confirmation = null; onSpeakResponse(result.message) }
             is AgentRunResult.NeedsConfirmation -> {
                 response = "Aguardando sua autorização."
-                status = "A Safety Engine pausou a ação."
+                status = "Aguardando sua confirmação para esta ação."
                 confirmation = result
                 onSpeakResponse("Preciso da sua autorização para continuar. " + result.reason)
             }
@@ -414,7 +414,7 @@ private fun JarvisScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     Column {
                         Text("J.A.R.V.I.S.", color = Cyan, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("PERSONAL INTELLIGENCE SYSTEM", color = Muted, style = MaterialTheme.typography.labelSmall)
+                        Text("ASSISTENTE PESSOAL • VOZ E AÇÕES", color = Muted, style = MaterialTheme.typography.labelSmall)
                     }
                     Box(Modifier.clip(CircleShape).background(if (voiceListening) Color(0xFF10353D) else Panel).border(1.dp, if (voiceListening) Cyan else Muted.copy(alpha = .35f), CircleShape).padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Text(if (voiceListening) "VOICE ACTIVE" else "STANDBY", color = if (voiceListening) Cyan else Muted, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
@@ -461,20 +461,20 @@ private fun JarvisScreen(
                 }
 
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("COMANDO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-                    OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("O que devo fazer?") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+                    Text("CONVERSA", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                    OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("Diga ou escreva o que você precisa…") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     Button(
                         enabled = command.isNotBlank() && !busy,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             busy = true
-                            response = "Planejando etapas e verificando permissões..."
+                            response = "Vou cuidar disso…"
                             status = "Agent Loop ativo."
                             val submitted = command.trim()
                             command = ""
                             onRunAgent(submitted) { handleResult(it) }
                         }
-                    ) { Text("Executar comando local / IA") }
+                    ) { Text("Enviar") }
                     Button(
                         enabled = JarvisAccessibilityService.instance != null && !busy,
                         modifier = Modifier.fillMaxWidth(),
