@@ -981,9 +981,9 @@ async function handle(request, env) {
         p.status === "timeout" ? "tempo esgotado" :
         p.status === "network_error" ? "erro de rede" :
         "falha do provedor (HTTP " + (p.httpStatus || "—") + ")"
-      )).join("\\n");
+      )).join("\n");
       await env.DB.prepare("INSERT INTO jarvis_pulses(kind,detail) VALUES(?,?)").bind("provider_diagnostics", JSON.stringify({ at: new Date().toISOString(), providers: providers.map(p => ({ provider: p.provider, status: p.status, httpStatus: p.httpStatus || null })) })).run();
-      return reply({ ok: true, response: "Diagnóstico dos provedores de IA:\\n" + summary, providers, model: "Jarvis Provider Diagnostics" });
+      return reply({ ok: true, response: "Diagnóstico dos provedores de IA:\n" + summary, providers, model: "Jarvis Provider Diagnostics" });
     }
 
     if (/^\s*\/tribunal\b|\btribunal\b|3-way review|risk-value-feasibility check|review this/i.test(message)) {
