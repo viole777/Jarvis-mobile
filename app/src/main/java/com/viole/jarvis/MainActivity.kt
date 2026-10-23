@@ -100,8 +100,8 @@ class MainActivity : ComponentActivity() {
                 ttsReady = languageStatus != TextToSpeech.ERROR &&
                     languageStatus != TextToSpeech.LANG_MISSING_DATA &&
                     languageStatus != TextToSpeech.LANG_NOT_SUPPORTED
-                tts?.setSpeechRate(0.92f)
-                tts?.setPitch(0.82f)
+                tts?.setSpeechRate(1.02f)
+                tts?.setPitch(0.90f)
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) = Unit
                     override fun onError(utteranceId: String?) = Unit
