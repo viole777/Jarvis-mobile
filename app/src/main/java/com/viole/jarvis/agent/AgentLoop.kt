@@ -94,6 +94,10 @@ class AgentLoop(
     }
     private var pending: ToolCall? = null
     private var roundsRemaining = 0
+    private val executedInCurrentTask = mutableSetOf<String>()
+
+    private fun actionFingerprint(call: ToolCall): String =
+        call.name + ":" + JSONObject(call.arguments).toString()
 
     suspend fun run(
         userInput: String,
@@ -106,7 +110,8 @@ class AgentLoop(
 
         messages += AgentMessage.User(userInput)
         saveMessages()
-        roundsRemaining = maxToolRounds
+        executedInCurrentTask.clear()
+        roundsRemaining = maxToolRounds.coerceIn(1, 5)
         return continueLoop(maxRetriesPerTool)
     }
 
@@ -129,6 +134,10 @@ class AgentLoop(
             return continueLoop(maxRetriesPerTool)
         }
 
+        val fingerprint = actionFingerprint(call)
+        if (!executedInCurrentTask.add(fingerprint)) {
+            return AgentRunResult.Failed("Ação duplicada bloqueada para evitar execução repetida.")
+        }
         val result = executor.executeConfirmed(call.name, call.arguments)
         messages += AgentMessage.ToolResult(
             call.name,
@@ -137,7 +146,13 @@ class AgentLoop(
         )
         saveMessages()
 
-        return continueLoop(maxRetriesPerTool)
+        // Once the user approves a consequential action (e.g. sending a message),
+        // stop the agent loop instead of letting the model issue the same action again.
+        return when (result) {
+            is ToolExecutionResult.Success -> AgentRunResult.Completed(result.output)
+            is ToolExecutionResult.Error -> AgentRunResult.Failed(result.message)
+            is ToolExecutionResult.ConfirmationRequired -> AgentRunResult.Failed("A ação ainda exige confirmação.")
+        }
     }
 
     private suspend fun continueLoop(maxRetriesPerTool: Int): AgentRunResult {
@@ -167,9 +182,16 @@ class AgentLoop(
             }
 
             for (call in response.toolCalls) {
+                val fingerprint = actionFingerprint(call)
+                if (fingerprint in executedInCurrentTask) {
+                    messages += AgentMessage.ToolResult(call.name, call.id, "Ação duplicada ignorada para impedir repetição.")
+                    saveMessages()
+                    continue
+                }
                 when (val result = executor.execute(call.name, call.arguments)) {
                     is ToolExecutionResult.Success -> {
                         retries = 0
+                        executedInCurrentTask.add(fingerprint)
                         messages += AgentMessage.ToolResult(
                             call.name,
                             call.id,
@@ -210,7 +232,7 @@ class AgentLoop(
         }
 
         return AgentRunResult.Failed(
-            "Interrompi a tarefa porque o limite de etapas foi atingido."
+            "Parei a tarefa após atingir o limite de etapas. Nenhuma nova ação será executada automaticamente."
         )
     }
 
