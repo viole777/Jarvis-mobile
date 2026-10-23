@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.viole.jarvis.claw.ClawUseClient
 import com.viole.jarvis.accessibility.JarvisAccessibilityService
 import com.viole.jarvis.agent.AgentLoop
 import com.viole.jarvis.agent.AgentRunResult
@@ -66,6 +67,8 @@ import kotlinx.coroutines.launch
 private const val PREFS = "jarvis_settings"
 private const val URL_KEY = "backend_url"
 private const val TOKEN_KEY = "backend_token"
+private const val CLAW_URL_KEY = "claw_bridge_url"
+private const val CLAW_TOKEN_KEY = "claw_bridge_token"
 private const val DEFAULT_URL = "https://jarvis-v2-cloud.viole-jarvis.workers.dev"
 private const val AUDIO_PERMISSION_REQUEST = 9001
 
@@ -108,6 +111,8 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         var backendUrl = prefs.getString(URL_KEY, DEFAULT_URL) ?: DEFAULT_URL
         var backendToken = prefs.getString(TOKEN_KEY, "") ?: ""
+        val initialClawUrl = prefs.getString(CLAW_URL_KEY, "") ?: ""
+        val initialClawToken = prefs.getString(CLAW_TOKEN_KEY, "") ?: ""
 
         fun configureAgent() {
             agent = AgentLoop(
@@ -153,6 +158,24 @@ class MainActivity : ComponentActivity() {
                     backendToken = token
                     prefs.edit().putString(URL_KEY, backendUrl).putString(TOKEN_KEY, backendToken).apply()
                     configureAgent()
+                },
+                initialClawUrl = initialClawUrl,
+                initialClawToken = initialClawToken,
+                onSaveClawBridge = { url, token ->
+                    prefs.edit().putString(CLAW_URL_KEY, url.trim().trimEnd('/')).putString(CLAW_TOKEN_KEY, token).apply()
+                },
+                onTestClawBridge = { url, token, callback ->
+                    Thread {
+                        val result = try {
+                            val normalized = url.trim().trimEnd('/')
+                            require(normalized.startsWith("http://") || normalized.startsWith("https://")) { "Informe uma URL válida." }
+                            ClawUseClient(normalized, token.ifBlank { "ping-only-placeholder" }).ping()
+                            "Claw Use respondeu ao /ping. Próximo teste exige token válido para ler a tela."
+                        } catch (e: Exception) {
+                            "Falha no teste: " + (e.message ?: "não foi possível conectar")
+                        }
+                        runOnUiThread { callback(result) }
+                    }.start()
                 },
                 onRunAgent = { input, onResult -> lifecycleScope.launch {\n                    val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)\n                    onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))\n                } },
                 onConfirm = { approved, onResult -> lifecycleScope.launch { onResult(agent.confirmPending(approved)) } }
@@ -221,12 +244,20 @@ private fun JarvisScreen(
     onSetVoiceCommandHandler: (((String) -> Unit)?) -> Unit,
     onSpeakResponse: (String) -> Unit,
     onSaveBackend: (String, String) -> Unit,
+    initialClawUrl: String,
+    initialClawToken: String,
+    onSaveClawBridge: (String, String) -> Unit,
+    onTestClawBridge: (String, String, (String) -> Unit) -> Unit,
     onRunAgent: (String, (AgentRunResult) -> Unit) -> Unit,
     onConfirm: (Boolean, (AgentRunResult) -> Unit) -> Unit
 ) {
     var command by remember { mutableStateOf("") }
     var backendUrl by remember { mutableStateOf(initialUrl) }
     var backendToken by remember { mutableStateOf(initialToken) }
+    var clawUrl by remember { mutableStateOf(initialClawUrl) }
+    var clawToken by remember { mutableStateOf(initialClawToken) }
+    var clawStatus by remember { mutableStateOf("Ponte Claw Use ainda não testada.") }
+    var clawTesting by remember { mutableStateOf(false) }
     var response by remember { mutableStateOf("Pronto para receber ordens.") }
     var screenText by remember { mutableStateOf("Nenhuma leitura realizada.") }
     var status by remember { mutableStateOf("Sistema em espera.") }
@@ -336,6 +367,27 @@ private fun JarvisScreen(
                     OutlinedTextField(value = backendToken, onValueChange = { backendToken = it }, label = { Text("Token de acesso") }, modifier = Modifier.fillMaxWidth())
                     Button(onClick = { onSaveBackend(backendUrl, backendToken); status = "Configuração salva localmente." }, modifier = Modifier.fillMaxWidth()) { Text("Salvar conexão") }
                     Text("O token fica armazenado no dispositivo e é enviado somente ao backend configurado.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("CLAW USE — PONTE DO DISPOSITIVO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                    OutlinedTextField(value = clawUrl, onValueChange = { clawUrl = it }, label = { Text("URL/IP da ponte (porta 7333)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(value = clawToken, onValueChange = { clawToken = it }, label = { Text("Token Claw Use (fica só no celular)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Button(onClick = {
+                        onSaveClawBridge(clawUrl, clawToken)
+                        clawStatus = "Configuração da ponte salva localmente."
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Salvar ponte") }
+                    Button(onClick = {
+                        clawTesting = true
+                        clawStatus = "Testando /ping..."
+                        onTestClawBridge(clawUrl, clawToken) { result ->
+                            clawStatus = result
+                            clawTesting = false
+                        }
+                    }, enabled = !clawTesting && clawUrl.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (clawTesting) "Testando..." else "Testar conexão com a ponte")
+                    }
+                    Text(clawStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("O endereço da ponte e seu token são usados no próprio dispositivo; o token da ponte não é enviado ao Worker.", color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.height(8.dp))
             }
