@@ -191,6 +191,54 @@ class MainActivity : ComponentActivity() {
                         runOnUiThread { callback(result) }
                     }.start()
                 },
+                onFetchClawCommand = { bridgeUrl, bridgeToken, callback ->
+                    Thread {
+                        try {
+                            require(backendToken.isNotBlank()) { "Salve o token de acesso do Jarvis primeiro." }
+                            require(bridgeUrl.isNotBlank() && bridgeToken.isNotBlank()) { "Configure a URL e o token Claw Use." }
+                            val executor = ClawCommandExecutor(
+                                backendUrl.trim().trimEnd('/'), backendToken, "primary",
+                                ClawUseClient(bridgeUrl.trim().trimEnd('/'), bridgeToken)
+                            )
+                            val queued = executor.fetchNext()
+                            runOnUiThread { callback(queued, if (queued == null) "Nenhum comando pendente." else "Comando recebido; aguardando confirmação local.") }
+                        } catch (e: Exception) {
+                            runOnUiThread { callback(null, "Falha ao consultar fila: " + (e.message ?: "erro desconhecido")) }
+                        }
+                    }.start()
+                },
+                onExecuteClawCommand = { queued, bridgeUrl, bridgeToken, callback ->
+                    Thread {
+                        val result = try {
+                            require(backendToken.isNotBlank()) { "Salve o token de acesso do Jarvis primeiro." }
+                            val executor = ClawCommandExecutor(
+                                backendUrl.trim().trimEnd('/'), backendToken, "primary",
+                                ClawUseClient(bridgeUrl.trim().trimEnd('/'), bridgeToken)
+                            )
+                            executor.executeApproved(queued)
+                            "Ação executada; resposta recebida da ponte."
+                        } catch (e: Exception) {
+                            "Falha na execução: " + (e.message ?: "erro desconhecido")
+                        }
+                        runOnUiThread { callback(result) }
+                    }.start()
+                },
+                onRejectClawCommand = { queued, bridgeUrl, bridgeToken, callback ->
+                    Thread {
+                        val result = try {
+                            require(backendToken.isNotBlank()) { "Salve o token de acesso do Jarvis primeiro." }
+                            val executor = ClawCommandExecutor(
+                                backendUrl.trim().trimEnd('/'), backendToken, "primary",
+                                ClawUseClient(bridgeUrl.trim().trimEnd('/'), bridgeToken)
+                            )
+                            executor.reject(queued)
+                            "Comando recusado; nenhuma ação foi enviada."
+                        } catch (e: Exception) {
+                            "Não foi possível registrar a recusa: " + (e.message ?: "erro desconhecido")
+                        }
+                        runOnUiThread { callback(result) }
+                    }.start()
+                },
                 onRunAgent = { input, onResult -> lifecycleScope.launch {
                     val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)
                     onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))
