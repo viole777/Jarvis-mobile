@@ -298,6 +298,19 @@ async function jarvisGitHubChatAction(message, env) {
   const text = clean(message, 6000);
   if (!/(github|reposit[oó]rio|repo\b|pull request|\bpr\b|arquivo|commit)/i.test(text)) return null;
   if (!env.GITHUB_TOKEN) return { response: "A integração GitHub está implementada, mas o Worker não recebeu GITHUB_TOKEN. Confira se foi salvo como Secret no Worker correto.", action: "github_not_configured" };
+  if (/(diagn[oó]stic|testar integra[cç][aã]o|verificar token|testar github)/i.test(text)) {
+    const identity = await githubRequest(env, "/user");
+    if (!identity.ok) return {
+      response: "Diagnóstico GitHub: o segredo GITHUB_TOKEN existe no Worker, mas o GitHub recusou seu valor (HTTP " + identity.status + "): " + clean(identity.data?.message || "sem detalhes", 250) + ". Verifique se o token não expirou ou foi revogado.",
+      action: "github_diagnostics_auth_failed"
+    };
+    const targetRepo = await githubRequest(env, "/repos/viole777/Jarvis-mobile");
+    const canPush = targetRepo.ok && targetRepo.data?.permissions?.push === true;
+    return {
+      response: "Diagnóstico GitHub concluído. Token autenticado como " + clean(identity.data?.login || "usuário não identificado", 100) + ". Repositório viole777/Jarvis-mobile acessível: " + (targetRepo.ok ? "sim" : "não (HTTP " + targetRepo.status + ")") + ". Permissão de escrita neste repositório: " + (canPush ? "confirmada" : "não confirmada") + ". O segredo correto é GITHUB_TOKEN. Se a escrita não estiver autorizada, confira as permissões Contents: Read and write e o acesso ao repositório. Isso não altera arquivos.",
+      action: canPush ? "github_diagnostics_write_ok" : "github_diagnostics_write_missing"
+    };
+  }
   const repoMatch = text.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
   const repo = repoMatch?.[1] || "";
   const confirmed = /\b(confirmo|confirmado|pode executar|autorizo)\b/i.test(text);
