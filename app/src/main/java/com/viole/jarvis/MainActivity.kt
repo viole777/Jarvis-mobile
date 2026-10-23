@@ -88,6 +88,8 @@ class MainActivity : ComponentActivity() {
     private var microphonePermission by mutableStateOf(false)
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var lastVoiceCommandText = ""
+    private var lastVoiceCommandAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -129,6 +131,12 @@ class MainActivity : ComponentActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val command = intent?.getStringExtra(VoiceTriggerService.EXTRA_COMMAND).orEmpty()
                 if (command.isNotBlank()) {
+                    val normalized = command.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    // Ignore recognizer duplicates; one spoken instruction must produce one action.
+                    if (normalized == lastVoiceCommandText && now - lastVoiceCommandAt < 5_000L) return
+                    lastVoiceCommandText = normalized
+                    lastVoiceCommandAt = now
                     if (voiceListening) stopService(Intent(this@MainActivity, VoiceTriggerService::class.java))
                     voiceCommandHandler?.invoke(command)
                 }
@@ -333,6 +341,7 @@ private fun JarvisScreen(
     var status by remember { mutableStateOf("Sistema em espera.") }
     var busy by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<AgentRunResult.NeedsConfirmation?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
 
     fun handleResult(result: AgentRunResult) {
         busy = false
@@ -438,23 +447,32 @@ private fun JarvisScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
                     ) { Text(if (JarvisAccessibilityService.instance != null) "Acessibilidade ativa" else "Ativar controle") }
                 }
-                Button(
-                    onClick = onOpenNotificationAccess,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
-                ) { Text("Ativar leitura de notificações") }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = onOpenNotificationAccess,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
+                    ) { Text("Notificações") }
+                    Button(
+                        onClick = { showSettings = !showSettings },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17314B))
+                    ) { Text(if (showSettings) "Ocultar ajustes" else "Ajustes e integrações") }
+                }
 
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("COMANDO", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                     OutlinedTextField(value = command, onValueChange = { command = it }, label = { Text("O que devo fazer?") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
                     Button(
-                        enabled = command.isNotBlank() && !busy && JarvisAccessibilityService.instance != null,
+                        enabled = command.isNotBlank() && !busy,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             busy = true
                             response = "Planejando etapas e verificando permissões..."
                             status = "Agent Loop ativo."
-                            onRunAgent(command) { handleResult(it) }
+                            val submitted = command.trim()
+                            command = ""
+                            onRunAgent(submitted) { handleResult(it) }
                         }
                     ) { Text("Executar comando local / IA") }
                     Button(
@@ -468,6 +486,7 @@ private fun JarvisScreen(
                     if (screenText != "Nenhuma leitura realizada.") Text(screenText, color = Muted, style = MaterialTheme.typography.bodySmall)
                 }
 
+                if (showSettings) {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Panel).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("CONEXÃO SEGURA", color = Cyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                     OutlinedTextField(value = backendUrl, onValueChange = { backendUrl = it }, label = { Text("URL do backend") }, modifier = Modifier.fillMaxWidth())
@@ -517,6 +536,7 @@ private fun JarvisScreen(
                     Text("A consulta não executa ações. Cada comando encontrado exige confirmação nesta tela.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text(clawStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text("O endereço da ponte e seu token são usados no próprio dispositivo; o token da ponte não é enviado ao Worker.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                }
                 }
                 Spacer(Modifier.height(8.dp))
             }
