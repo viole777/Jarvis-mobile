@@ -445,6 +445,10 @@ async function handle(request, env) {
   }
 
   if (!authorized(request, env)) return reply({ error: "Não autorizado." }, 401);
+  if (url.pathname.startsWith("/v2/claw/")) {
+    if (!env.DB) return reply({ error: "Binding DB não configurado." }, 503);
+    await ensureSchema(env.DB);
+  }
 
   // Authenticated queue for the on-device Claw Use executor. The bridge token stays on Android.
   if (url.pathname === "/v2/claw/commands" && request.method === "POST") {
