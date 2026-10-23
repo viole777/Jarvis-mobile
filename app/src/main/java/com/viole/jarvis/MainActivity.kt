@@ -54,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.viole.jarvis.claw.ClawUseClient
+import com.viole.jarvis.claw.ClawCommandExecutor
+import com.viole.jarvis.claw.QueuedClawCommand
 import com.viole.jarvis.accessibility.JarvisAccessibilityService
 import com.viole.jarvis.agent.AgentLoop
 import com.viole.jarvis.agent.AgentRunResult
