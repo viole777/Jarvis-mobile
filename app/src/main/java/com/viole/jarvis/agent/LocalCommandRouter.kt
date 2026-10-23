@@ -35,7 +35,7 @@ class LocalCommandRouter(
             command.contains("rolar para cima") || command.contains("subir a tela") ->
                 registry.get("scroll")?.execute(mapOf("direction" to "up"))
 
-            command.startsWith("abrir ") -> openApp(command.removePrefix("abrir ").trim())
+            isOpenAppCommand(command) -> openApp(extractAppName(command))
 
             else -> null
         } ?: return@withContext null
@@ -46,6 +46,19 @@ class LocalCommandRouter(
             is ToolExecutionResult.ConfirmationRequired -> AgentRunResult.Failed("A ação requer confirmação pelo fluxo normal do Jarvis.")
             null -> null
         }
+    }
+
+    private fun isOpenAppCommand(command: String): Boolean {
+        val verbs = listOf("abrir ", "abre ", "abra ", "iniciar ", "inicia ", "inicie ", "executar ", "execute ", "entrar no ", "entrar na ", "abre o ", "abra o ", "abre a ", "abra a ")
+        return verbs.any { command.startsWith(it) } &&
+            listOf("whatsapp", "instagram", "telegram", "chrome", "navegador", "configuracoes", "youtube", "spotify")
+                .any { command.contains(it) }
+    }
+
+    private fun extractAppName(command: String): String {
+        val app = listOf("whatsapp", "instagram", "telegram", "chrome", "navegador", "configuracoes", "youtube", "spotify")
+            .firstOrNull { command.contains(it) } ?: return command
+        return app
     }
 
     private suspend fun openApp(name: String): ToolExecutionResult? {
