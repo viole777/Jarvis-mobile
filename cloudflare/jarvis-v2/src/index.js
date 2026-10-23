@@ -34,8 +34,8 @@ async function jarvisCallExternalProvider(messages, tools, maxTokens, env, prefe
       url: freeLlmBase.endsWith("/v1") ? freeLlmBase + "/chat/completions" : freeLlmBase + "/v1/chat/completions",
       model: env.FREELLMAPI_MODEL || "auto:smart"
     }] : []),
-    { name: "gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-2.5-flash" },
-    { name: "groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "llama-3.3-70b-versatile" },
+    { name: "gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-3.8-flash" },
+    { name: "groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "openai/gpt-oss-120b" },
     { name: "openrouter", key: env.OPENROUTER_API_KEY, url: "https://openrouter.ai/api/v1/chat/completions", model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free" },
     { name: "nvidia", key: env.NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct" }
   ].filter(p => typeof p.key === "string" && p.key.trim());
@@ -297,8 +297,8 @@ async function jarvisDailyToolAction(message) {
 async function jarvisProviderDiagnostics(env) {
   const freeLlmBase = clean(env.FREELLMAPI_BASE_URL || "", 500).replace(/\/+$/, "");
   const providers = [
-    { name: "Gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-2.5-flash" },
-    { name: "Groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "llama-3.3-70b-versatile" },
+    { name: "Gemini", key: env.GEMINI_API_KEY, url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", model: env.GEMINI_MODEL || "gemini-3.8-flash" },
+    { name: "Groq", key: env.GROQ_API_KEY, url: "https://api.groq.com/openai/v1/chat/completions", model: env.GROQ_MODEL || "openai/gpt-oss-120b" },
     { name: "OpenRouter", key: env.OPENROUTER_API_KEY, url: "https://openrouter.ai/api/v1/chat/completions", model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free" },
     { name: "NVIDIA", key: env.NVIDIA_API_KEY, url: "https://integrate.api.nvidia.com/v1/chat/completions", model: env.NVIDIA_MODEL || "meta/llama-3.3-70b-instruct" },
     ...(freeLlmBase && env.FREELLMAPI_API_KEY ? [{
@@ -330,6 +330,7 @@ async function jarvisProviderDiagnostics(env) {
         ok: response.ok && Boolean(payload?.choices?.[0]?.message?.content || payload?.response),
         httpStatus: response.status,
         status: response.ok ? "reachable" : response.status === 401 || response.status === 403 ? "invalid_key_or_permission" : response.status === 429 ? "quota_or_rate_limit" : "provider_error",
+        providerMessage: response.ok ? undefined : clean(payload?.error?.message || payload?.message || payload?.detail || payload?.error?.code || "", 240) || undefined,
         model: provider.model
       };
     } catch (error) {
