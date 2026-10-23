@@ -454,6 +454,7 @@ async function handle(request, env) {
   if (url.pathname === "/v2/claw/commands" && request.method === "POST") {
     const payload = await request.json().catch(() => ({}));
     const action = payload.action && typeof payload.action === "object" && !Array.isArray(payload.action) ? payload.action : null;
+    if (payload.approved !== true) return reply({ error: "A aprovação explícita do usuário é obrigatória." }, 403);
     const allowed = ["click","tap","type","swipe","scroll","back","home","recents","launch","longpress"];
     if (!action || Object.keys(action).length < 1 || Object.keys(action).length > 5 || Object.keys(action).some(key => !allowed.includes(key))) return reply({ error: "Ação Claw Use ausente ou não permitida." }, 400);
     const normalized = {};
@@ -472,7 +473,7 @@ async function handle(request, env) {
     }
     if (!Object.keys(normalized).length) return reply({ error: "Ação vazia após validação." }, 400);
     const deviceId = clean(payload.deviceId || "primary", 80) || "primary";
-    const inserted = await env.DB.prepare("INSERT INTO jarvis_claw_commands(device_id,action_json) VALUES(?,?)").bind(deviceId, JSON.stringify(normalized)).run();
+    const inserted = await env.DB.prepare("INSERT INTO jarvis_claw_commands(device_id,action_json) VALUES(?,?)").bind(deviceId, JSON.stringify({ action: normalized, approved: true })).run();
     return reply({ ok: true, commandId: inserted.meta?.last_row_id, status: "pending", deviceId }, 202);
   }
   if (url.pathname === "/v2/claw/commands/next" && request.method === "GET") {
@@ -482,9 +483,9 @@ async function handle(request, env) {
     if (!command) return reply({ ok: true, command: null });
     const leased = await env.DB.prepare("UPDATE jarvis_claw_commands SET status='leased',leased_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=? AND status='pending'").bind(command.id).run();
     if (!leased.meta?.changes) return reply({ ok: true, command: null });
-    let action = {};
-    try { action = JSON.parse(command.action_json); } catch {}
-    return reply({ ok: true, command: { id: command.id, action, createdAt: command.created_at } });
+    let envelope = {};
+    try { envelope = JSON.parse(command.action_json); } catch {}
+    return reply({ ok: true, command: { id: command.id, action: envelope.action || {}, approved: envelope.approved === true, createdAt: command.created_at } });
   }
   if (url.pathname.startsWith("/v2/claw/commands/") && url.pathname.endsWith("/result") && request.method === "POST") {
     const parts = url.pathname.split("/").filter(Boolean);
