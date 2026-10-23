@@ -5,12 +5,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 
+/** A command leased from the authenticated Worker queue; execution is separate so UI can ask approval. */
+data class QueuedClawCommand(
+    val id: Long,
+    val action: JSONObject,
+    val serverMarkedApproved: Boolean
+) {
+    fun safePreview(): String = action.toString().take(1200)
+}
+
 /**
- * Executes one authenticated Jarvis Cloud queue item on-device.
- *
- * The Jarvis access token authenticates to the Worker. The Claw Use bridge
- * token is used only for the direct device-to-bridge request and is never
- * included in any Cloudflare request.
+ * Android-side bridge between the authenticated Jarvis queue and the local Claw Use bridge.
+ * The bridge token is never sent to Cloudflare. Call network methods off the UI thread.
  */
 class ClawCommandExecutor(
     private val workerBaseUrl: String,
@@ -26,34 +32,40 @@ class ClawCommandExecutor(
         require(deviceId.isNotBlank() && deviceId.length <= 80) { "Invalid device ID." }
     }
 
-    /** Polls once; returns false when no command is queued. */
-    fun runOnce(): Boolean {
+    /** Leases one command without executing it. The UI must obtain local confirmation first. */
+    fun fetchNext(): QueuedClawCommand? {
         val path = "/v2/claw/commands/next?deviceId=" + java.net.URLEncoder.encode(deviceId, "UTF-8")
         val envelope = workerRequest("GET", path, null)
-        val command = envelope.optJSONObject("command") ?: return false
+        val command = envelope.optJSONObject("command") ?: return null
         val id = command.optLong("id", -1L)
         val action = command.optJSONObject("action")
-        if (id < 1L || action == null) return false
-
-        try {
-            // Require explicit approval in the queue payload before any device-changing action.
-            if (!command.optBoolean("approved", false)) {
-                postResult(id, "failed", "Comando recusado: aprovação explícita ausente.")
-                return true
-            }
-            val result = bridge.act(action)
-            postResult(id, "completed", result.toString())
-        } catch (_: Exception) {
-            // Do not forward exception text, which could contain private device details.
-            postResult(id, "failed", "Falha ao executar ação no Claw Use.")
-        }
-        return true
+        if (id < 1L || action == null) return null
+        return QueuedClawCommand(id, action, command.optBoolean("approved", false))
     }
 
-    private fun postResult(id: Long, status: String, summary: String) {
-        val body = JSONObject()
-            .put("status", status)
-            .put("summary", summary.take(1000))
+    /** Executes only after the UI has explicitly confirmed this specific leased command. */
+    fun executeApproved(command: QueuedClawCommand): JSONObject {
+        if (!command.serverMarkedApproved) {
+            reportResult(command.id, "failed", "Comando recusado: aprovação do servidor ausente.")
+            throw IllegalStateException("O comando não está marcado como aprovado.")
+        }
+        return try {
+            val result = bridge.act(command.action)
+            reportResult(command.id, "completed", result.toString())
+            result
+        } catch (e: Exception) {
+            try { reportResult(command.id, "failed", "Falha ao executar ação no Claw Use.") } catch (_: Exception) {}
+            throw IllegalStateException("Falha ao executar ação no Claw Use.")
+        }
+    }
+
+    /** Releases the lease as failed when the user rejects the action. */
+    fun reject(command: QueuedClawCommand) {
+        reportResult(command.id, "failed", "Ação recusada localmente pelo usuário.")
+    }
+
+    private fun reportResult(id: Long, status: String, summary: String) {
+        val body = JSONObject().put("status", status).put("summary", summary.take(1000))
         workerRequest("POST", "/v2/claw/commands/" + id + "/result", body)
     }
 
