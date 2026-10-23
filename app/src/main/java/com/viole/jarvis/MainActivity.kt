@@ -177,6 +177,18 @@ class MainActivity : ComponentActivity() {
                         runOnUiThread { callback(result) }
                     }.start()
                 },
+                onReadClawScreen = { url, token, callback ->
+                    Thread {
+                        val result = try {
+                            require(token.isNotBlank()) { "Informe o token da ponte para ler a tela." }
+                            val screen = ClawUseClient(url.trim().trimEnd('/'), token).readScreen(true)
+                            "Leitura recebida: " + screen.toString().take(1800)
+                        } catch (e: Exception) {
+                            "Falha ao ler tela: " + (e.message ?: "não foi possível conectar")
+                        }
+                        runOnUiThread { callback(result) }
+                    }.start()
+                },
                 onRunAgent = { input, onResult -> lifecycleScope.launch {
                     val localResult = LocalCommandRouter(applicationContext, AndroidToolRegistry(applicationContext)).run(input)
                     onResult(localResult ?: if (backendToken.isBlank()) AgentRunResult.Failed("Este comando ainda não está disponível no modo local. Use: abrir WhatsApp/Instagram/Chrome, ler notificações, ler tela, voltar ou rolar a tela. Para tarefas de linguagem livre, ainda é necessário configurar um modelo de IA.") else agent.run(input))
@@ -251,6 +263,7 @@ private fun JarvisScreen(
     initialClawToken: String,
     onSaveClawBridge: (String, String) -> Unit,
     onTestClawBridge: (String, String, (String) -> Unit) -> Unit,
+    onReadClawScreen: (String, String, (String) -> Unit) -> Unit,
     onRunAgent: (String, (AgentRunResult) -> Unit) -> Unit,
     onConfirm: (Boolean, (AgentRunResult) -> Unit) -> Unit
 ) {
@@ -388,6 +401,16 @@ private fun JarvisScreen(
                         }
                     }, enabled = !clawTesting && clawUrl.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                         Text(if (clawTesting) "Testando..." else "Testar conexão com a ponte")
+                    }
+                    Button(onClick = {
+                        clawTesting = true
+                        clawStatus = "Lendo árvore de acessibilidade..."
+                        onReadClawScreen(clawUrl, clawToken) { result ->
+                            clawStatus = result
+                            clawTesting = false
+                        }
+                    }, enabled = !clawTesting && clawUrl.isNotBlank() && clawToken.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (clawTesting) "Aguarde..." else "Ler tela pelo Claw Use")
                     }
                     Text(clawStatus, color = Muted, style = MaterialTheme.typography.bodySmall)
                     Text("O endereço da ponte e seu token são usados no próprio dispositivo; o token da ponte não é enviado ao Worker.", color = Muted, style = MaterialTheme.typography.bodySmall)
