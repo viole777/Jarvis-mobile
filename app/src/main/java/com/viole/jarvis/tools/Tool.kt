@@ -1,5 +1,8 @@
 package com.viole.jarvis.tools
 
+/** Lightweight action classification used by the executor; independent of the removed SafetyEngine. */
+enum class RiskLevel { NONE, LOW, MEDIUM, HIGH }
+
 interface Tool {
     val name: String
     val description: String
