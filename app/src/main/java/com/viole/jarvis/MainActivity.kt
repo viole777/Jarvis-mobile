@@ -421,7 +421,7 @@ private fun JarvisScreen(
                     }
                 }
 
-                CoreOrb(active = voiceListening || busy)
+                CoreOrb(active = voiceListening || busy, mood = if (busy) "thinking" else if (voiceListening) "listening" else if (confirmation != null) "surprised" else "idle")
 
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.verticalGradient(listOf(Panel, Color(0xFF08111D)))).border(1.dp, Cyan.copy(alpha = .18f), RoundedCornerShape(20.dp)).padding(18.dp),
@@ -559,28 +559,118 @@ private fun JarvisScreen(
 }
 
 @Composable
-private fun CoreOrb(active: Boolean) {
-    val transition = rememberInfiniteTransition(label = "jarvis-core")
+private fun CoreOrb(active: Boolean, mood: String) {
+    val transition = rememberInfiniteTransition(label = "jarvis-mascot")
     val pulse by transition.animateFloat(
-        initialValue = 0.90f,
-        targetValue = 1.06f,
-        animationSpec = infiniteRepeatable(animation = tween(durationMillis = if (active) 1100 else 2300), repeatMode = RepeatMode.Reverse),
-        label = "core-pulse"
+        initialValue = 0.97f,
+        targetValue = if (active) 1.035f else 1.012f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (active) 720 else 1900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mascot-breathe"
     )
-    Box(Modifier.fillMaxWidth().height(218.dp), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(208.dp)) {
+    val bob by transition.animateFloat(
+        initialValue = -2f,
+        targetValue = if (active) 4f else 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (active) 520 else 1500),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mascot-bob"
+    )
+    val eyeHeight = when (mood) {
+        "thinking" -> 0.45f
+        "surprised" -> 1.25f
+        else -> 1f
+    }
+    val mouthOpen = mood == "listening" || mood == "thinking"
+    Box(Modifier.fillMaxWidth().height(236.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(224.dp)) {
             val center = this.center
             val base = size.minDimension / 2f
-            drawCircle(Cyan.copy(alpha = .08f), radius = base * pulse)
-            drawCircle(Cyan.copy(alpha = .18f), radius = base * .86f, style = Stroke(width = 1.5.dp.toPx()))
-            drawCircle(Blue.copy(alpha = .38f), radius = base * .72f, style = Stroke(width = 2.dp.toPx()))
-            drawCircle(Cyan.copy(alpha = .12f), radius = base * .55f)
-            drawCircle(Brush.radialGradient(listOf(Color(0xFFB7FFFF), Cyan, Color(0xFF086E91), Color(0xFF04111F)), center = center, radius = base * .54f), radius = base * .52f)
-            drawCircle(Color.White.copy(alpha = .8f), radius = base * .07f)
+            drawCircle(Cyan.copy(alpha = .07f), radius = base * pulse)
+            drawCircle(Cyan.copy(alpha = .19f), radius = base * .88f, style = Stroke(width = 1.4.dp.toPx()))
+            drawCircle(Blue.copy(alpha = .28f), radius = base * .76f, style = Stroke(width = 2.dp.toPx()))
+            // Soft holographic pedestal and floating character silhouette.
+            drawOval(
+                color = Cyan.copy(alpha = .12f),
+                topLeft = androidx.compose.ui.geometry.Offset(center.x - base * .53f, center.y + base * .48f),
+                size = androidx.compose.ui.geometry.Size(base * 1.06f, base * .18f)
+            )
+            val headRadius = base * .51f * pulse
+            val headCenter = androidx.compose.ui.geometry.Offset(center.x, center.y - base * .04f + bob.dp.toPx())
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFFF0FFFF), Color(0xFFB6F5FF), Color(0xFF48B8D7), Color(0xFF15517D)),
+                    center = androidx.compose.ui.geometry.Offset(headCenter.x - headRadius * .25f, headCenter.y - headRadius * .35f),
+                    radius = headRadius * 1.8f
+                ),
+                radius = headRadius,
+                center = headCenter
+            )
+            // Ear-like side fins make the avatar read as a tiny robot, not a plain orb.
+            drawRoundRect(
+                color = Color(0xFF3ABDDC),
+                topLeft = androidx.compose.ui.geometry.Offset(headCenter.x - headRadius * 1.04f, headCenter.y - headRadius * .05f),
+                size = androidx.compose.ui.geometry.Size(headRadius * .22f, headRadius * .48f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(headRadius * .12f)
+            )
+            drawRoundRect(
+                color = Color(0xFF3ABDDC),
+                topLeft = androidx.compose.ui.geometry.Offset(headCenter.x + headRadius * .82f, headCenter.y - headRadius * .05f),
+                size = androidx.compose.ui.geometry.Size(headRadius * .22f, headRadius * .48f),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(headRadius * .12f)
+            )
+            val eyeY = headCenter.y - headRadius * .05f
+            val eyeX = headRadius * .34f
+            val eyeR = headRadius * .075f
+            drawOval(
+                color = Color(0xFF07304B),
+                topLeft = androidx.compose.ui.geometry.Offset(headCenter.x - eyeX - eyeR, eyeY - eyeR * eyeHeight),
+                size = androidx.compose.ui.geometry.Size(eyeR * 2f, eyeR * 2f * eyeHeight)
+            )
+            drawOval(
+                color = Color(0xFF07304B),
+                topLeft = androidx.compose.ui.geometry.Offset(headCenter.x + eyeX - eyeR, eyeY - eyeR * eyeHeight),
+                size = androidx.compose.ui.geometry.Size(eyeR * 2f, eyeR * 2f * eyeHeight)
+            )
+            val mouthY = headCenter.y + headRadius * .28f
+            if (mouthOpen) {
+                drawOval(
+                    color = Color(0xFF07304B),
+                    topLeft = androidx.compose.ui.geometry.Offset(headCenter.x - headRadius * .10f, mouthY - headRadius * .055f),
+                    size = androidx.compose.ui.geometry.Size(headRadius * .20f, headRadius * .15f)
+                )
+            } else {
+                drawLine(
+                    color = Color(0xFF07304B),
+                    start = androidx.compose.ui.geometry.Offset(headCenter.x - headRadius * .15f, mouthY),
+                    end = androidx.compose.ui.geometry.Offset(headCenter.x + headRadius * .15f, mouthY),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            }
+            // Small highlight creates a glossy, dimensional finish.
+            drawCircle(Color.White.copy(alpha = .7f), radius = headRadius * .12f,
+                center = androidx.compose.ui.geometry.Offset(headCenter.x - headRadius * .36f, headCenter.y - headRadius * .38f))
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("J", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Light)
-            Text(if (active) "ACTIVE" else "ONLINE", color = Color.White.copy(alpha = .82f), style = MaterialTheme.typography.labelSmall)
+        Column(
+            modifier = Modifier.padding(top = 170.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                when (mood) {
+                    "thinking" -> "HMM... JÁ SEI"
+                    "listening" -> "ESTOU OUVINDO"
+                    "surprised" -> "OPA!"
+                    else -> "OLÁ, CHEFE"
+                },
+                color = Cyan,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text("J.A.R.V.I.S.", color = Color.White.copy(alpha = .78f), style = MaterialTheme.typography.labelSmall)
         }
     }
 }
